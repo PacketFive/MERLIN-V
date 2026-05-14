@@ -1,3 +1,6 @@
 [submodule "net-next"]
 	path = net-next
 	url = https://git.kernel.org/pub/scm/linux/kernel/git/netdev/net-next.git
+[submodule "bpf-next"]
+	path = bpf-next
+	url = https://git.kernel.org/pub/scm/linux/kernel/git/bpf/bpf-next.git
