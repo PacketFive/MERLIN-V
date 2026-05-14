@@ -53,3 +53,6 @@ dkms.conf
 
 # debug information files
 *.dwo
+
+# Local-only AI agent handoff notes (not for upstream)
+docs/AI/COMMIT_WORKFLOW.md
