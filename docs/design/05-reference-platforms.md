@@ -92,13 +92,161 @@ Tracked here to keep the design grounded; not in Phase 1 deliverables.
 
 ## 5. Zephyr RTOS as a tier-1 OS target
 
+Zephyr is a tier-1 host for BPF-V — not an afterthought to the Linux
+path. The Zephyr environment is in some ways a *better* match for
+BPF-V's design than the Linux kernel is, because the things BPF-V
+provides (sandboxed safety, hot-reloadable logic, a portable
+application bytecode) are things Zephyr lacks today.
+
+### 5.1 The gap BPF-V fills on Zephyr
+
+Zephyr's current deployment model freezes application behaviour at
+flash time. A/B image swap with full reflash is the canonical update
+mechanism. Other ecosystems plug this gap with:
+
+- **MicroPython / Lua on MCUs** — flexible but unsafe (a script can
+  crash the device or wedge the scheduler), slow (interpreted), and
+  large (hundreds of KB).
+- **WebAssembly micro-runtimes (WAMR, wasm3)** — safe and reasonably
+  fast, but require a Wasm-aware toolchain and 50–200 KB of runtime
+  unrelated to the device's actual job.
+- **Custom plugin loaders** — common in practice, almost always
+  unsafe and bespoke.
+
+BPF-V's `rtos/zephyr` profile (see
+[`06-verifier.md`](06-verifier.md) §7.2) is purpose-built for this
+gap.
+
+### 5.2 Concrete advantages of running BPF-V on Zephyr
+
+**1. Safety without a process abstraction.** Zephyr typically has no
+MMU — just an MPU — and no process model. Application bugs corrupt
+the whole device. BPF-V's verifier statically proves memory safety,
+termination, well-formed indirect control flow, and helper-only side
+effects *before* loading. The device gets memory-safety guarantees
+that Zephyr alone does not provide, without paying for an MMU or a
+process scheduler.
+
+**2. Field-updatable logic without reflashing the OS.** The Zephyr
+image (drivers, BLE stack, BPF-V runtime, security boundary) is
+long-lived and rarely updated. BPF-V modules — sensor pipelines,
+classification rules, alarm policy, payload formats — ship and
+update separately, over BLE/UART/MQTT/USB, without reboot or full
+reflash. Certification authorities can sign just the policy module.
+
+```
++----------------------+
+|  Zephyr firmware     |   ← long-lived, OTA-updated rarely
+|   - drivers          |
+|   - BLE / Wi-Fi stack|
+|   - BPF-V runtime    |
++----------------------+
+        │ loads
+        ▼
++----------------------+
+|  app.bpfv (≤ 64 KB)  |   ← updated freely, no reboot
+|   - sensor pipeline  |
+|   - classification   |
+|   - alarm policy     |
++----------------------+
+```
+
+**3. One toolchain, one wire format, one engineer.** Today, a team
+shipping firmware uses the Zephyr SDK and a team writing Linux
+observability uses libbpf / LLVM-BPF. With BPF-V, *the same*
+`.bpfv.o` runs on both Linux and Zephyr from stock RISC-V GCC or
+Clang. Embedded engineers' BPF-V expertise becomes portable to
+datacentre work and vice versa; hiring and skills transfer improve.
+
+**4. Verifier-enforced real-time bounds.** A BPF-V program with the
+embedded profile's tight step cap has a *provable* upper bound on
+execution time (verifier proves termination; instruction count is
+bounded; helper set is restricted to helpers with documented
+worst-case latency). That makes BPF-V programs schedulable in hard-
+real-time contexts in a way arbitrary C application code is not.
+
+**5. Tiny runtime footprint.** The `rtos/zephyr` profile caps text
+at 64 KB and stack at 4 KB. The runtime itself (verifier + loader +
+dispatch) targets ~20–40 KB. That fits comfortably on virtually
+every modern RISC-V MCU including the ESP32-C3 with room to spare —
+typically less than a Wasm runtime in similar regime.
+
+**6. Sandboxed third-party code.** A third-party or partner
+integrator ships a signed `.bpfv.o`. The device verifies it on
+load. Hosting *untrusted modules on your own hardware* becomes a
+structural property of the system rather than an act of trust in the
+contributor's discipline. This unlocks third-party app stores,
+integrator-supplied logic, and partner extensions in models that
+plain C cannot safely support.
+
+**7. Hot reload without reboot.** Loading and unloading a BPF-V
+program is a runtime operation (allocate, verify, relocate, install,
+atomic pointer swap). Behaviour can be swapped *without rebooting*
+the device — for long-running sensors, actuators, gateways this is
+the difference between "a software update" and "an outage."
+
+**8. Cross-board portability of application logic.** Because the
+bytecode is RV32IMC (or RV64IMAC) — not a specific MCU's quirks —
+the same `app.bpfv` runs on ESP32-C3, MPFS Icicle E51, BL602, CH32V,
+SiFive FE310, and on RISC-V soft cores in Lattice / Microchip /
+Xilinx FPGAs. **Application logic is decoupled from silicon**, in a
+way Zephyr application binaries today are not.
+
+**9. Auditable, deterministic behaviour.** Verifier-provided
+termination and memory-safety proofs make a BPF-V module
+substantially more auditable than arbitrary C. For safety-critical
+contexts (medical, automotive, industrial) this is a real
+certification advantage — entire classes of failure mode can be
+ruled out structurally rather than by review.
+
+**10. Common observability story across Linux and devices.** BPF /
+eBPF gives Linux operators a uniform way to inspect production
+behaviour; that story stops at the edge today. With BPF-V on Zephyr,
+the same toolchain ships tracing and profiling *modules* to the
+device, runs them in place, and returns results — the eBPF
+observability model on a 100 KB MCU. For fleet operators this is
+operationally significant.
+
+### 5.3 The strategic framing
+
+The most interesting framing of BPF-V on Zephyr is not "Zephyr gets
+a sandbox":
+
+> **BPF-V makes the Linux / datacentre eBPF programming model
+> available at the deep edge, with the same toolchain, the same wire
+> format, the same verifier guarantees, and the same operational
+> metaphors.**
+
+A team running an eBPF / Cilium Linux fleet and a Zephyr MCU fleet
+today operates two completely separate stacks. With BPF-V, *the
+application layer* is one stack across both. This is the structural
+unlock and most of why BPF-V on Zephyr is architecturally more
+interesting than BPF-V on x86 Linux, where it competes with mature
+eBPF.
+
+### 5.4 Where the advantage is weakest (honest bookend)
+
+- For a single-tenant device whose firmware is flashed once and
+  never customised, BPF-V is overhead. Plain C is fine.
+- For devices already shipping a Wasm runtime with plenty of flash,
+  the Wasm story is mature; BPF-V's win is incremental, not
+  transformative.
+- For non-RISC-V cores (ARM Cortex-M dominates Zephyr deployments
+  today), BPF-V still needs a real translating JIT on the device —
+  a modest size cost plus a per-arch JIT to maintain. The strongest
+  Zephyr-on-BPF-V story is on RISC-V MCUs, where the pass-through
+  path applies.
+
+### 5.5 Engineering plan (unchanged from prior text)
+
 - Maintain a `runtime/zephyr/` BPF-V runtime that:
-  - Validates a small subset of the verifier (the parts feasible in a
-    constrained RTOS).
+  - Validates and verifies under the embedded profile's step cap
+    (the parts of the verifier feasible in a constrained RTOS).
   - Provides a helper table appropriate for RTOS workloads (timers,
-    Zephyr logging, sensor APIs).
-  - Loads BPF-V images at runtime via a Zephyr shell command or over a
-    transport (UART, BLE).
+    Zephyr logging, GPIO, sensor APIs, BLE/Wi-Fi gating where the
+    product calls for it).
+  - Loads BPF-V images at runtime via a Zephyr shell command or
+    over a transport (UART, BLE, USB-CDC).
 - Ship as an out-of-tree Zephyr module first; upstream once stable.
 
 ## 6. CI matrix (target state)
