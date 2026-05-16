@@ -167,22 +167,42 @@ program needs RISC-V-only semantics.
 These are tracked here so they survive into the RFC. Each links into a
 deeper-dive document:
 
-- Which RISC-V *profile* do we pin? RVA22U64 (server-class), RVA20U64,
-  RV32IMAC (embedded), custom? — see
-  [02-isa-and-bytecode.md](02-isa-and-bytecode.md).
-- Vector (RVV 1.0), Bitmanip (Zb\*), atomics (A), float (F/D),
-  compressed (C): which are mandatory, optional, forbidden?
-- Memory model: WMO (default) or Ztso required for in-kernel programs?
-- Helper invocation: `ecall` with a helper number in `a7`, or a
-  jump-table relocation? — see
-  [02-isa-and-bytecode.md](02-isa-and-bytecode.md) §ABI.
-- Verifier strategy on a Turing-complete ISA: subset + abstract
-  interpretation, or symbolic execution? — see
-  [06-verifier.md](06-verifier.md).
-- Toolchain default: GCC, Clang, or both equally? — see
-  [04-toolchain.md](04-toolchain.md).
-- Co-existence with eBPF: shared map infra, shared verifier core, or
-  parallel stacks? — see [03-kernel-interfaces.md](03-kernel-interfaces.md).
+- Memory model on `bpfv-linux-rv64`: default to RVWMO and require
+  programs to use explicit fences, or pin a Ztso-required variant
+  profile? Probably default RVWMO with Ztso opt-in if hardware
+  advertises it — see
+  [02-isa-and-bytecode.md](02-isa-and-bytecode.md) §7.
+- Vector (RVV 1.0): per-program flag inside `bpfv-linux-rv64`
+  post-RFC, or a new profile name (`bpfv-linux-rv64v`)? Out of
+  scope for RFC v1.
+- `A`-extension AMOs in `bpfv-linux-rv64`: allow any
+  typed-pointer atomic, or require helpers for cross-CPU ordering
+  critical sections? — see [06-verifier.md](06-verifier.md) §8.
+- Linker relaxation policy: verify before or after relaxation, or
+  require `-mno-relax` from the compiler.
+- Co-existence with eBPF: shared map infra (yes, planned), shared
+  verifier core (Option A as a follow-up to Option B v1) — see
+  [06-verifier.md](06-verifier.md) §4 and
+  [03-kernel-interfaces.md](03-kernel-interfaces.md) §5.
+
+The following previously-open questions are now **decided**
+(recorded here for traceability):
+
+- ~~Which RISC-V profile do we pin?~~ → two project profiles,
+  `bpfv-linux-rv64` and `bpfv-rtos-rv32`. See
+  [02-isa-and-bytecode.md](02-isa-and-bytecode.md) §1.
+- ~~Which extensions are mandatory / optional / forbidden?~~ → §3
+  of `02-isa-and-bytecode.md`, pinned per profile.
+- ~~Helper invocation: ecall with a7, or jump-table relocation?~~
+  → ecall + a7 source-level encoding, loader rewrites to direct
+  call at install time. See
+  [02-isa-and-bytecode.md](02-isa-and-bytecode.md) §6.
+- ~~Verifier strategy~~ → subset + abstract interpretation, with
+  Option B (standalone) for RFC v1 and Option A (shared
+  abstract-domain module) as a follow-up. See
+  [06-verifier.md](06-verifier.md) §4.
+- ~~Toolchain default~~ → GCC and Clang both supported as
+  first-class. See [04-toolchain.md](04-toolchain.md) §1.
 
 ## 7. What BPF-V is not (and what it could become)
 

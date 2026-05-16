@@ -1,8 +1,8 @@
 # 06 — Verifier Strategy
 
-Status: starter
+Status: sharing strategy pinned (Option B for v1); profile catalogue aligned
 Owner: PacketFive
-Last reviewed: initial draft
+Last reviewed: post profile + ABI decisions
 
 The verifier is *the* load-bearing safety component. This document
 records the strategy for verifying programs whose ISA is a general
@@ -77,28 +77,55 @@ following domains:
 
 State merge is by widening at loop headers, then re-walking until
 fixpoint or step-cap exhaustion. The step cap is configurable per
-profile; on `bpfv-rv32imc-ilp32` it is sharply tighter to keep
+profile; on `bpfv-rtos-rv32` it is sharply tighter to keep
 verification feasible on the loader CPU.
 
-## 4. Sharing with the eBPF verifier
+## 4. Sharing with the eBPF verifier (decided)
 
-The two verifiers want the same *abstract domain* (tnum/range/pointer
-provenance machinery) over different *concrete ISAs*. There are two
-plausible factorings:
+**Decision: Option B for RFC v1; Option A documented as a
+follow-up.**
+
+The two verifiers want the same *abstract domain*
+(tnum/range/pointer provenance machinery) over different
+*concrete ISAs*. There are two plausible factorings:
 
 - **Option A — extract a shared `lib/bpf_absint/` module** from
   `kernel/bpf/verifier.c`, parameterise the per-insn transfer
   functions. eBPF and BPF-V each plug in their decoder + transfer
   function table.
-- **Option B — independent verifier.** Simpler to land standalone, at
-  the cost of code duplication that maintainers will reasonably push
-  back on.
+- **Option B — independent verifier.** Standalone
+  `kernel/bpfv/verifier.c` that duplicates the abstract-domain
+  machinery.
 
-Initial preference: prototype as Option B (standalone, in
-`kernel/bpfv/verifier.c`) to keep the RFC self-contained, but design
-the data structures so a refactor to Option A is a syntactic
-change. The RFC cover letter should explicitly invite kernel BPF
-maintainers to choose A or B.
+The BPF-V RFC v1 patchset lands as **Option B**. The patchset is
+*self-contained*: it adds `kernel/bpfv/` and does not modify
+`kernel/bpf/`. Rationale:
+
+- Lowest possible review surface. eBPF maintainers can review the
+  BPF-V verifier as new code without auditing changes to an
+  existing, security-critical file they already maintain.
+- Fastest time-to-merge. Option A requires refactoring
+  `kernel/bpf/verifier.c` *before* BPF-V can land; that refactor
+  is its own multi-cycle effort.
+- Lowest risk. A refactor of the eBPF verifier could regress eBPF
+  behaviour; keeping BPF-V parallel decouples the two risk
+  surfaces.
+
+The duplication cost is real but bounded — abstract-domain code
+is hundreds of lines, not thousands.
+
+**Commitment for v1.** The BPF-V verifier's data structures are
+designed *as if* they will be factored later: same abstract
+domain (tnum + range + pointer provenance + liveness), same
+widening discipline, same naming where possible. The eventual
+refactor to Option A becomes a syntactic change, not a semantic
+one. The RFC cover letter says this explicitly.
+
+**Option A as a follow-up.** Once both verifiers are in the tree
+and have shipped, a separate, opt-in patchset can extract the
+shared abstract-domain module. That patchset is reviewed by both
+BPF and BPF-V maintainers jointly. It is *not* a precondition for
+either verifier landing.
 
 ## 5. Decoder
 
@@ -166,18 +193,28 @@ applies: an unknown profile is rejected.
 
 ### 7.2 Initial profile catalogue
 
-The catalogue below is the *initial* design target. Numbers are
-deliberately conservative starting points to be refined by
-measurement during prototyping.
+The catalogue below ties verifier-side knobs to the two pinned
+**bytecode** profiles in
+[02-isa-and-bytecode.md](02-isa-and-bytecode.md) §1. Each row is
+a *verifier* profile that selects one of the two bytecode
+profiles. Numbers are deliberately conservative starting points
+to be refined by measurement during prototyping.
 
-| Profile | Where it runs | Step cap | Max text | Stack | Sleepable | Recursion | RVV | Helpers |
-| ------- | ------------- | -------- | -------- | ----- | --------- | --------- | --- | ------- |
-| `linux-kernel/default` | Linux atomic hooks (XDP-V, TC-V, kprobe-V, …) | 1 M | 1 MB | 8 KB | no | bounded ≤ 8 | no | small, eBPF-shaped |
-| `linux-kernel/sleepable` | Linux sleepable hooks (LSM-V, fentry-V on sleepable funcs, …) | 4 M | 4 MB | 64 KB | yes | bounded ≤ 32 | no | broader, includes mem-alloc helper |
-| `linux-kernel/largemem` | Linux long-running data-plane programs with `bpf_arena_v` access | 8 M | 4 MB | 64 KB | yes | bounded ≤ 32 | optional | as above + arena ops |
-| `offload/nic-firmware` | RISC-V SmartNIC / DPU / accelerator firmware | per-vendor | per-vendor | per-vendor | yes | bounded ≤ 64 | yes (if device has it) | vendor-defined, large |
-| `rtos/zephyr` | Zephyr on RISC-V MCU | 8 K | 64 KB | 4 KB | yes (cooperative) | bounded ≤ 16 | no (initially) | RTOS-shaped (timers, GPIO, logging) |
-| `user-mode/sandbox` (optional) | User-space sandbox process | 8 M | 8 MB | 256 KB | yes | bounded ≤ 64 | yes | very broad, syscall-shaped |
+| Verifier profile | Bytecode profile | Where it runs | Step cap | Max text | Stack | Sleepable | Recursion | RVV | Helpers |
+| ---------------- | ---------------- | ------------- | -------- | -------- | ----- | --------- | --------- | --- | ------- |
+| `linux-rv64/default`   | `bpfv-linux-rv64` | Linux atomic hooks (XDP-V, TC-V, kprobe-V, …)                  | 1 M | 1 MB | 8 KB  | no  | bounded ≤ 8  | no  | small, eBPF-shaped |
+| `linux-rv64/sleepable` | `bpfv-linux-rv64` | Linux sleepable hooks (LSM-V, fentry-V on sleepable funcs, …) | 4 M | 4 MB | 64 KB | yes | bounded ≤ 32 | no  | broader, includes mem-alloc helper |
+| `linux-rv64/largemem`  | `bpfv-linux-rv64` | Linux long-running data-plane programs with `bpf_arena_v`     | 8 M | 4 MB | 64 KB | yes | bounded ≤ 32 | optional | above + arena ops |
+| `offload/nic-firmware` | `bpfv-linux-rv64` *or* `bpfv-rtos-rv32` (vendor-selected) | RISC-V SmartNIC / DPU / accelerator firmware | per-vendor | per-vendor | per-vendor | yes | bounded ≤ 64 | yes (if device has it) | vendor-defined, large |
+| `rtos-rv32/zephyr`     | `bpfv-rtos-rv32` | Zephyr on RISC-V MCU (ESP32-C3, MPFS E51, FPGA soft cores)    | 8 K | 64 KB | 4 KB  | yes (cooperative) | bounded ≤ 16 | no (initially) | RTOS-shaped (timers, GPIO, logging) |
+| `user-mode/sandbox` *(future)* | either | User-space sandbox process                                          | 8 M | 8 MB | 256 KB | yes | bounded ≤ 64 | yes | very broad, syscall-shaped |
+
+The bytecode profile constrains the *march* the loader will
+accept; the verifier profile constrains the *behaviour* the
+verifier will tolerate. They compose: a `linux-rv64/sleepable`
+verifier profile only accepts programs that declared the
+`bpfv-linux-rv64` bytecode profile *and* whose declared hook
+permits sleepable behaviour.
 
 Two design rules:
 
@@ -233,7 +270,7 @@ The loader (`BPFV_PROG_LOAD`) checks:
 1. The requested profile is implemented and enabled on this host.
 2. The caller holds the capability associated with that profile.
 3. The hook the program will attach to permits the profile (e.g.
-   atomic XDP-V hook will not accept a `linux-kernel/sleepable`
+   atomic XDP-V hook will not accept a `linux-rv64/sleepable`
    program).
 4. The RISC-V ISA features the program uses are subsumed by the
    profile's permitted extension set.
@@ -272,12 +309,12 @@ verifier decision.
 The verifier ships profile-aware from day one, even though only the
 default profile is implemented:
 
-- **Phase 1 (RFC v1):** `linux-kernel/default` only. The profile
+- **Phase 1 (RFC v1):** `linux-rv64/default` only. The profile
   struct exists, but only one populated instance.
-- **Phase 2:** add `linux-kernel/sleepable`, `rtos/zephyr`.
+- **Phase 2:** add `linux-rv64/sleepable`, `rtos-rv32/zephyr`.
 - **Phase 3:** `offload/nic-firmware` (requires the device control
   protocol from [07-jit-and-offload.md](07-jit-and-offload.md) §5).
-- **Phase 4:** `linux-kernel/largemem` (depends on a BPF-V arena
+- **Phase 4:** `linux-rv64/largemem` (depends on a BPF-V arena
   facility; coordinate with eBPF `bpf_arena` work).
 - **Phase 5 (research):** `user-mode/sandbox`.
 
@@ -287,18 +324,32 @@ space.
 
 ## 8. Open items
 
-- Choose Option A vs Option B for abstract-domain sharing with eBPF.
 - Decide whether to verify before or after linker relaxation (some
   RISC-V toolchains relax sequences in-place; verifier must either
   understand both forms or require `-mno-relax`).
-- Decide the `bpfv_loop()` helper signature.
+- Decide the `bpfv_loop()` helper signature (or replace with a
+  registered kfunc, leaning that way given the helper-ABI
+  decision in [02-isa-and-bytecode.md](02-isa-and-bytecode.md) §6).
 - Decide the policy for `A`-extension atomics in shared memory: allow
   any typed-pointer atomic, or require a helper for cross-CPU
-  ordering critical sections.
-- Lock the initial profile catalogue (§7.2) and assign capability
-  names to each non-default profile.
+  ordering critical sections. `A` is mandatory in `bpfv-linux-rv64`
+  but the verifier policy for raw AMOs is a separate question.
+- Assign capability names to each non-default verifier profile
+  (`CAP_BPFV` for default; `CAP_BPFV_OFFLOAD` for offload;
+  `CAP_BPFV_RTOS` for embedded; etc.). UAPI-impacting; coordinate
+  with [03-kernel-interfaces.md](03-kernel-interfaces.md).
 - Decide whether a profile's helper set is part of the kernel ABI
   (UAPI-stable) or per-program-type (looser).
 - Decide whether the optional `user-mode/sandbox` profile lives in
   this project or in a sibling project; the answer affects whether
   the verifier ships in a usable user-space form.
+
+The following previously-open items are now **decided** (recorded
+here for traceability):
+
+- ~~Choose Option A vs Option B for abstract-domain sharing with
+  eBPF~~ → §4, decided: Option B for RFC v1; Option A as a
+  follow-up.
+- ~~Lock the initial profile catalogue~~ → §7.2, decided. Catalogue
+  names aligned to the pinned bytecode profile names in
+  [02-isa-and-bytecode.md](02-isa-and-bytecode.md) §1.

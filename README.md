@@ -57,6 +57,15 @@ directories.
   advanced-OS-design course built on top of BPF-V (twelve labs,
   setup → eBPF dissection → user-space stack → kernel module →
   Zephyr / hardware → capstone).
+- **Companion book:** *The BPF-V Book — From a Multiplexer to an
+  In-Kernel JIT VM on RISC-V Hardware You Built.* Four-part book
+  (digital design + ISA + RISC-V CPU on FPGA → custom hardware +
+  Linux drivers → eBPF → BPF-V), purpose-built for the BPF-V
+  academics course's prerequisite reading and beyond. Lives in its
+  own repository at
+  [`PacketFive/eBPF-book`](https://github.com/PacketFive/eBPF-book)
+  *(repo rename to `packetfive-bpfv-book` planned)*. Book content
+  CC-BY-SA-4.0; lab code GPL-2.0-only.
 - [`docs/AI/AGENT_INSTRUCTIONS.md`](docs/AI/AGENT_INSTRUCTIONS.md) —
   rules for AI-assisted contributions (follows the Linux Kernel AI
   Policy).

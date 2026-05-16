@@ -61,9 +61,10 @@ Reasons against picking only one:
   experiment without forking the toolchain story.
 - Distros and customers will demand both.
 
-### 1.4 Required compiler flags (initial baseline)
+### 1.4 Required compiler flags (per pinned profile)
 
-For `riscv64-linux-gnu-gcc`:
+For programs targeting **`bpfv-linux-rv64`** with
+`riscv64-linux-gnu-gcc`:
 
 ```
 -O2
@@ -72,7 +73,7 @@ For `riscv64-linux-gnu-gcc`:
 -fno-asynchronous-unwind-tables
 -fno-builtin
 -mabi=lp64
--march=rv64imac          # default in-kernel profile, no F/D
+-march=rv64imac_zicsr_zifencei
 -mcmodel=medany
 -fno-jump-tables         # verifier-friendlier
 -fno-plt
@@ -80,22 +81,27 @@ For `riscv64-linux-gnu-gcc`:
 -Werror=implicit-function-declaration
 ```
 
-For `clang --target=riscv64-unknown-linux-gnu`:
+For programs targeting **`bpfv-linux-rv64`** with
+`clang --target=riscv64-unknown-linux-gnu`:
 
 ```
 -O2
 -ffreestanding
 -fno-stack-protector
 -mabi=lp64
--march=rv64imac
+-march=rv64imac_zicsr_zifencei
 -mcmodel=medany
 -fno-jump-tables
 -nostdlib
 ```
 
-For embedded targets, swap `rv64imac/lp64` → `rv32imc/ilp32` and add
-`-mno-relax` if the loader does not implement linker relaxation
-fix-ups.
+For programs targeting **`bpfv-rtos-rv32`** (embedded), swap to
+`riscv32-unknown-elf-gcc` (or `riscv32-zephyr-elf-gcc`) and
+`-mabi=ilp32`, `-march=rv32imc_zicsr_zifencei` (add `_a` if the
+target has the `A` extension). Use `-mno-relax` if the loader on
+your target does not implement linker-relaxation fix-ups; the
+verifier's relaxation policy is an open item — see
+[06-verifier.md](06-verifier.md) §8.
 
 ### 1.5 What we are *not* doing
 

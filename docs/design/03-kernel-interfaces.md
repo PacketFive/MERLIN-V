@@ -89,7 +89,7 @@ struct {
     __u32 elf_len;
     __u32 prog_type;      // BPFV_PROG_TYPE_*
     __u32 expected_attach_type;
-    __u32 profile;        // BPFV_PROFILE_* (rv32imc-ilp32, rv64imac-lp64, ...)
+    __u32 profile;        // BPFV_PROFILE_LINUX_RV64 | BPFV_PROFILE_RTOS_RV32
     __u32 log_level;
     __u64 log_buf;
     __u32 log_size;
@@ -98,6 +98,20 @@ struct {
     /* ... */
 } prog_load;
 ```
+
+The `profile` field is the *bytecode* profile declared in the
+program's `.bpfv.meta` section. Initial values:
+
+| Value | Bytecode profile | march string |
+| ----- | ---------------- | ------------ |
+| `BPFV_PROFILE_LINUX_RV64` | `bpfv-linux-rv64` | `rv64imac_zicsr_zifencei` |
+| `BPFV_PROFILE_RTOS_RV32`  | `bpfv-rtos-rv32`  | `rv32imc_zicsr_zifencei` (optional `_a`) |
+
+See [02-isa-and-bytecode.md](02-isa-and-bytecode.md) §1 for
+profile definitions and §3 for per-profile extension policy.
+The *verifier* profile (default / sleepable / largemem / ...) is
+selected separately based on the hook the program will attach
+to; see [06-verifier.md](06-verifier.md) §7.
 
 `prog_type` enumerates BPF-V hook contracts. Initial set:
 

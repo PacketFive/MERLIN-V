@@ -14,11 +14,12 @@ specific OS configuration.
 
 - SoC: MPFS250T-FCVG484EES (and similar). Quad SiFive U54 (RV64GC) +
   monitor E51 (RV64IMAC).
-- BPF-V profile (host Linux): `bpfv-rv64imac-lp64`
+- BPF-V profile (host Linux): `bpfv-linux-rv64`
   - We deliberately disable F/D for in-kernel programs (G/Fd are
     available to user space).
-- BPF-V profile (FPGA fabric soft core, see §1.3): per soft-core
-  ISA, typically `bpfv-rv32imc-ilp32` or `bpfv-rv64imc-lp64`.
+- BPF-V profile (FPGA fabric soft core, see §1.3): `bpfv-rtos-rv32`
+  (the FPGA soft cores we target are rv32imc-class; if a larger
+  soft core is instantiated, switch to `bpfv-linux-rv64` and rebuild).
 - OS: Linux (current upstream rv64), Yocto-based mpfs-dev BSP, or
   Zephyr.
 
@@ -54,7 +55,7 @@ This is the simplest demonstration of the "1:1 RISC-V offload" claim.
 ## 2. ESP32-C3-DevKitM-1 (rv32imc, Espressif)
 
 - SoC: ESP32-C3 — RV32IMC, no FPU, no MMU.
-- BPF-V profile: `bpfv-rv32imc-ilp32`.
+- BPF-V profile: `bpfv-rtos-rv32`.
 - OS: Zephyr or ESP-IDF / FreeRTOS.
 
 ### 2.1 Bring-up checklist
@@ -141,7 +142,7 @@ mechanism. Other ecosystems plug this gap with:
 - **Custom plugin loaders** — common in practice, almost always
   unsafe and bespoke.
 
-BPF-V's `rtos/zephyr` profile (see
+BPF-V's `rtos-rv32/zephyr` (verifier profile) on `bpfv-rtos-rv32` profile (see
 [`06-verifier.md`](06-verifier.md) §7.2) is purpose-built for this
 gap.
 
@@ -193,7 +194,7 @@ bounded; helper set is restricted to helpers with documented
 worst-case latency). That makes BPF-V programs schedulable in hard-
 real-time contexts in a way arbitrary C application code is not.
 
-**5. Tiny runtime footprint.** The `rtos/zephyr` profile caps text
+**5. Tiny runtime footprint.** The `rtos-rv32/zephyr` (verifier profile) on `bpfv-rtos-rv32` profile caps text
 at 64 KB and stack at 4 KB. The runtime itself (verifier + loader +
 dispatch) targets ~20–40 KB. That fits comfortably on virtually
 every modern RISC-V MCU including the ESP32-C3 with room to spare —
@@ -288,19 +289,19 @@ E51 / fabric soft cores), and the ESP32-C3-DevKitM-1 (RV32 Zephyr).
 QEMU stands in for hermetic, hardware-independent reproduction of
 each path.
 
-| Builder | Toolchain | Profile | Smoke test |
-| ------- | --------- | ------- | ---------- |
-| x86\_64 Linux developer host | GCC | host-jit-x86\_64 | selftests, host JIT, kernel module |
-| x86\_64 Linux developer host | Clang | host-jit-x86\_64 | selftests (Clang-built objects) |
-| Raspberry Pi 4B (arm64 Linux) | GCC | host-jit-arm64 | selftests, host JIT, kernel module |
-| `qemu-system-riscv64` (Linux/virt) | GCC | rv64imac-lp64 | selftests, pass-through |
-| `qemu-system-riscv32` (Linux/virt) | GCC | rv32imc-ilp32 | selftests, pass-through |
-| `qemu_riscv64` (Zephyr) | GCC | rv64imac-lp64 | trace + GPIO helpers |
-| `qemu_riscv32` (Zephyr) | GCC | rv32imc-ilp32 | trace + GPIO helpers |
-| MPFS Icicle Kit (Linux on U54) | GCC | rv64imac-lp64 | XDP-V drop |
-| MPFS Icicle Kit (Zephyr on E51) | GCC | rv64imc-lp64 | trace helper |
-| MPFS Icicle fabric soft core (rv32imc) | GCC | rv32imc-ilp32 | offload demonstrator |
-| `esp32c3_devkitm` (Zephyr) | GCC | rv32imc-ilp32 | packet classifier |
+| Builder | Toolchain | Bytecode profile | Smoke test |
+| ------- | --------- | ---------------- | ---------- |
+| x86\_64 Linux developer host | GCC | `bpfv-linux-rv64` (host JIT to x86\_64) | selftests, host JIT, kernel module |
+| x86\_64 Linux developer host | Clang | `bpfv-linux-rv64` (host JIT to x86\_64) | selftests (Clang-built objects) |
+| Raspberry Pi 4B (arm64 Linux) | GCC | `bpfv-linux-rv64` (host JIT to arm64) | selftests, host JIT, kernel module |
+| `qemu-system-riscv64` (Linux/virt) | GCC | `bpfv-linux-rv64` (pass-through) | selftests, pass-through |
+| `qemu-system-riscv32` (Linux/virt) | GCC | `bpfv-rtos-rv32` (pass-through) | selftests, pass-through |
+| `qemu_riscv64` (Zephyr) | GCC | `bpfv-linux-rv64` (pass-through) | trace + GPIO helpers |
+| `qemu_riscv32` (Zephyr) | GCC | `bpfv-rtos-rv32` (pass-through) | trace + GPIO helpers |
+| MPFS Icicle Kit (Linux on U54) | GCC | `bpfv-linux-rv64` (pass-through) | XDP-V drop |
+| MPFS Icicle Kit (Zephyr on E51) | GCC | `bpfv-rtos-rv32` (pass-through) | trace helper |
+| MPFS Icicle fabric soft core (rv32imc) | GCC | `bpfv-rtos-rv32` (pass-through) | offload demonstrator |
+| `esp32c3_devkitm` (Zephyr) | GCC | `bpfv-rtos-rv32` (pass-through) | packet classifier |
 
 `qemu` boards stand in for "did our compiler produce something the
 verifier accepts" and "did the pass-through JIT run it." The physical
