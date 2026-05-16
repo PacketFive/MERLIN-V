@@ -29,8 +29,8 @@ After this lab you will be able to:
 ### Task 1 — Repository and submodules
 
 ```sh
-git clone <your fork URL> bpfv-course
-cd bpfv-course
+git clone <your fork URL> merlin-course
+cd merlin-course
 git submodule update --init --depth 1 net-next bpf-next
 ```
 

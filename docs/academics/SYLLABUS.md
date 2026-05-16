@@ -1,4 +1,4 @@
-# Syllabus — BPF-V Advanced OS Design Course
+# Syllabus — MERLIN-V Advanced OS Design Course
 
 > **Pacing.** Organised in *modules*, not weeks. Each module assumes
 > the prior module's deliverable is complete. An instructor adapting
@@ -18,7 +18,7 @@
           ▼
 ┌──────────────────────────┐
 │  Module 3 — User-space   │  Lab 03 (interpreter) → Lab 04 (verifier)
-│  BPF-V core              │   → Lab 05 (objtool)
+│  MERLIN-V core              │   → Lab 05 (objtool)
 └─────────┬────────────────┘
           ▼
 ┌──────────────────────────┐
@@ -53,14 +53,14 @@
 - Build and run an eBPF program; read its disassembly; observe the
   verifier log.
 - Read RISC-V assembly; reproduce small functions in `as`.
-- Articulate, in one page, why a BPF-V proposal exists.
+- Articulate, in one page, why a MERLIN-V proposal exists.
 
-### Module 3 — User-space BPF-V core
+### Module 3 — User-space MERLIN-V core
 - Implement a decoder/interpreter for an `RV32I` subset.
 - Implement a verifier: register state lattice, range tracking,
   pointer provenance, indirect-jump rejection, loop bound proofs.
-- Parse a BPF-V ELF: `.text`, `.bpfv.meta`, `.bpfv.maps`,
-  `.bpfv.relocs`.
+- Parse a MERLIN-V ELF: `.text`, `.merlin.meta`, `.merlin.maps`,
+  `.merlin.relocs`.
 
 ### Module 4 — JITs
 - Implement a pass-through "JIT": `mmap(PROT_READ|PROT_EXEC)`, copy
@@ -86,7 +86,7 @@
 - Implement a small XDP-V-equivalent hook in the out-of-tree module,
   attach to a `veth` pair, count and drop packets matching a filter.
 - Produce a measurement report (verifier time, load-to-run latency,
-  per-packet cycles) and a short critique of the BPF-V design.
+  per-packet cycles) and a short critique of the MERLIN-V design.
 
 ## Assessment artefacts per lab
 

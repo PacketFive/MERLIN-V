@@ -1,4 +1,4 @@
-# Lab 03 — User-space BPF-V Interpreter
+# Lab 03 — User-space MERLIN-V Interpreter
 
 Module: 3
 Effort tier: M
@@ -12,7 +12,7 @@ Design docs: [`02-isa-and-bytecode.md`](../design/02-isa-and-bytecode.md),
 - Maintain an architectural register file and a small stack in
   user-space C.
 - Execute a real (`-march=rv32i -mabi=ilp32`) program compiled by GCC.
-- Implement the BPF-V helper ABI: `ecall` with `a7 = helper_id`.
+- Implement the MERLIN-V helper ABI: `ecall` with `a7 = helper_id`.
 
 ## Background reading
 
@@ -21,13 +21,13 @@ Design docs: [`02-isa-and-bytecode.md`](../design/02-isa-and-bytecode.md),
 
 ## Specification
 
-You will build `bpfvi`, a user-space interpreter.
+You will build `merlin`, a user-space interpreter.
 
 Inputs:
 - An ELF object compiled with `riscv32-unknown-elf-gcc -march=rv32i
   -mabi=ilp32 -nostdlib -ffreestanding -Wl,-Ttext=0x0` (the lab
   skeleton ships the linker script).
-- The name of the entry symbol (default: `bpfv_entry`).
+- The name of the entry symbol (default: `merlin_entry`).
 - A buffer to pass as the program's single `a0` argument.
 
 Outputs:
@@ -58,12 +58,12 @@ The interpreter treats `ecall` as follows:
 2. Dispatch through a table:
 
    ```c
-   typedef int32_t (*bpfvi_helper_fn)(uint32_t a0, uint32_t a1, uint32_t a2,
+   typedef int32_t (*merlin_helper_fn)(uint32_t a0, uint32_t a1, uint32_t a2,
                                       uint32_t a3, uint32_t a4, uint32_t a5);
 
-   static const struct bpfvi_helper {
+   static const struct merlin_helper {
        const char       *name;
-       bpfvi_helper_fn   fn;
+       merlin_helper_fn   fn;
    } helpers[] = {
        [0] = { "trace_log",  helper_trace_log  },
        [1] = { "ctx_load_u32", helper_ctx_load_u32 },
@@ -94,7 +94,7 @@ The autograder pins this format, so do not deviate.
 Implement `src/decode.c` exporting:
 
 ```c
-struct bpfvi_insn {
+struct merlin_insn {
     uint32_t pc;
     uint32_t raw;
     uint8_t  op;       // your internal enum
@@ -102,7 +102,7 @@ struct bpfvi_insn {
     int32_t  imm;
 };
 
-int bpfvi_decode(const uint8_t *bytes, uint32_t pc, struct bpfvi_insn *out);
+int merlin_decode(const uint8_t *bytes, uint32_t pc, struct merlin_insn *out);
 ```
 
 The function returns 0 on success and -1 on "not a supported insn."
@@ -112,14 +112,14 @@ The function returns 0 on success and -1 on "not a supported insn."
 Implement `src/interp.c`:
 
 ```c
-struct bpfvi_state {
+struct merlin_state {
     uint32_t x[32];        // RV32 GPRs
     uint32_t pc;
     uint8_t  mem[64 * 1024]; // flat memory
     int      tracing;
 };
 
-int32_t bpfvi_run(struct bpfvi_state *st, uint32_t entry);
+int32_t merlin_run(struct merlin_state *st, uint32_t entry);
 ```
 
 Make sure `x[0]` always reads as zero, regardless of writes.
@@ -129,7 +129,7 @@ Make sure `x[0]` always reads as zero, regardless of writes.
 Implement `src/loader.c`:
 
 ```c
-int bpfvi_load_elf(const char *path, struct bpfvi_state *st,
+int merlin_load_elf(const char *path, struct merlin_state *st,
                    uint32_t *entry_out, const char *entry_sym);
 ```
 
@@ -150,7 +150,7 @@ The skeleton ships `tests/progs/`:
 - `tests/progs/loop.S` — counts to 10 in a loop, returns 10.
 - `tests/progs/strlen.S` — Lab 02's `strlen` adapted to call helper 2
   for each byte.
-- `tests/progs/trace.S` — calls helper 0 with the literal "BPFV03".
+- `tests/progs/trace.S` — calls helper 0 with the literal "MERLIN03".
 
 `tools/grade.sh` builds each `.S`, runs your interpreter, and compares
 output to a golden trace.
@@ -158,7 +158,7 @@ output to a golden trace.
 ## Deliverables
 
 - `src/decode.c`, `src/interp.c`, `src/loader.c`, `src/helpers.c`,
-  `include/bpfvi.h`.
+  `include/merlin.h`.
 - A passing autograder log.
 - `WRITEUP.md` answering:
   - How is `x[0]` enforced as zero? At decode time or at write time?

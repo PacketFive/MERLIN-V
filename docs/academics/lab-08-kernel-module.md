@@ -27,30 +27,30 @@ Design doc: [`docs/design/03-kernel-interfaces.md`](../design/03-kernel-interfac
 
 ## Specification
 
-You will ship `kmod/bpfvi.ko` exposing `/dev/bpfvi` with the following
+You will ship `kmod/merlin.ko` exposing `/dev/merlin` with the following
 `ioctl`s:
 
 ```c
-#define BPFVI_IOC_MAGIC  'V'
+#define MERLIN_IOC_MAGIC  'M'
 
-struct bpfvi_load_attr {
+struct merlin_load_attr {
     __u64 elf_ptr;   // user pointer
     __u32 elf_size;
     __u32 flags;
     char  name[32];
 };
 
-struct bpfvi_run_attr {
+struct merlin_run_attr {
     __u32 prog_id;
     __u64 ctx_ptr;
     __u32 ctx_size;
     __s32 retval;    // out
 };
 
-#define BPFVI_IOC_LOAD    _IOWR(BPFVI_IOC_MAGIC, 0x01, struct bpfvi_load_attr)
-#define BPFVI_IOC_RUN     _IOWR(BPFVI_IOC_MAGIC, 0x02, struct bpfvi_run_attr)
-#define BPFVI_IOC_UNLOAD  _IOW (BPFVI_IOC_MAGIC, 0x03, __u32)
-#define BPFVI_IOC_INFO    _IOR (BPFVI_IOC_MAGIC, 0x04, struct bpfvi_info)
+#define MERLIN_IOC_LOAD    _IOWR(MERLIN_IOC_MAGIC, 0x01, struct merlin_load_attr)
+#define MERLIN_IOC_RUN     _IOWR(MERLIN_IOC_MAGIC, 0x02, struct merlin_run_attr)
+#define MERLIN_IOC_UNLOAD  _IOW (MERLIN_IOC_MAGIC, 0x03, __u32)
+#define MERLIN_IOC_INFO    _IOR (MERLIN_IOC_MAGIC, 0x04, struct merlin_info)
 ```
 
 ### Module-side flow
@@ -94,9 +94,9 @@ verified `.text` verbatim. On non-RISC-V hosts, the module hosts the
 
 ### Task 1 — Skeleton module
 
-Build a minimal `bpfvi.ko` that registers a `miscdevice` and prints
+Build a minimal `merlin.ko` that registers a `miscdevice` and prints
 to `dmesg` on open/close. Load and unload it repeatedly. Confirm with
-`/sys/module/bpfvi/` and `lsmod`.
+`/sys/module/merlin/` and `lsmod`.
 
 ### Task 2 — Static-link prior labs
 
@@ -107,7 +107,7 @@ in-kernel library `kmod/lib/`. Adjust `printf` → `pr_info`, `malloc`
 ### Task 3 — `LOAD`
 
 Implement the ioctl. Test with a user-space program that opens
-`/dev/bpfvi` and submits a good ELF and a bad ELF.
+`/dev/merlin` and submits a good ELF and a bad ELF.
 
 ### Task 4 — Exec pages
 

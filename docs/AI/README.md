@@ -1,10 +1,10 @@
 # AI Agent Documentation
 
 This directory contains instructions, policies, and conventions for AI coding
-assistants (and their human operators) contributing to **BPF-V**
+assistants (and their human operators) contributing to **MERLIN-V**
 (BPF RISC-V ISA Bytecode JIT VM).
 
-BPF-V tracks and contributes to the upstream Linux kernel `net-next` tree
+MERLIN-V tracks and contributes to the upstream Linux kernel `net-next` tree
 (see `.gitmodules`), so all AI-assisted work in this repository follows the
 [Linux Kernel AI Policy](https://docs.kernel.org/process/coding-assistants.html)
 with the project-specific adjustments documented here.

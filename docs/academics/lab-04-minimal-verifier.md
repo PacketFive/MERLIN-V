@@ -11,7 +11,7 @@ Design doc: [`docs/design/06-verifier.md`](../design/06-verifier.md).
   concrete interpreter for.
 - Track register types (scalar, pointer-to-ctx, pointer-to-stack),
   value ranges, and pointer offsets.
-- Reject programs that violate the BPF-V safety properties listed in
+- Reject programs that violate the MERLIN-V safety properties listed in
   `docs/design/06-verifier.md` §2.
 - Explain why the soundness of the verifier matters more than its
   precision.
@@ -27,7 +27,7 @@ Design doc: [`docs/design/06-verifier.md`](../design/06-verifier.md).
 
 ## Specification
 
-You will build `bpfvi-verify`. Inputs:
+You will build `merlin-verify`. Inputs:
 
 - The same ELF format Lab 03 consumes.
 - A program-type record describing the context type (e.g. "ctx is a
@@ -42,18 +42,18 @@ Outputs:
 For each register `x[i]`, track:
 
 ```c
-enum bpfvi_type {
-    BPFVI_T_INVALID,
-    BPFVI_T_UNKNOWN,         // scalar, no info
-    BPFVI_T_CONST,           // scalar, known value
-    BPFVI_T_RANGE,           // scalar with [umin, umax]
-    BPFVI_T_PTR_CTX,         // pointer to ctx, with offset range
-    BPFVI_T_PTR_STACK,       // pointer to program stack, with offset
-    BPFVI_T_PTR_HELPER_RET,  // typed return of a helper
+enum merlin_type {
+    MERLIN_T_INVALID,
+    MERLIN_T_UNKNOWN,         // scalar, no info
+    MERLIN_T_CONST,           // scalar, known value
+    MERLIN_T_RANGE,           // scalar with [umin, umax]
+    MERLIN_T_PTR_CTX,         // pointer to ctx, with offset range
+    MERLIN_T_PTR_STACK,       // pointer to program stack, with offset
+    MERLIN_T_PTR_HELPER_RET,  // typed return of a helper
 };
 
-struct bpfvi_reg {
-    enum bpfvi_type type;
+struct merlin_reg {
+    enum merlin_type type;
     int64_t  val;        // for CONST
     uint64_t umin, umax; // for RANGE / pointer offsets
 };
@@ -61,7 +61,7 @@ struct bpfvi_reg {
 
 `x[0]` is permanently `T_CONST`, value 0.
 
-The stack is tracked at byte granularity for the first `BPFVI_STACK`
+The stack is tracked at byte granularity for the first `MERLIN_STACK`
 bytes (e.g., 256), with a per-byte type tag (unknown / scalar /
 pointer).
 
@@ -78,7 +78,7 @@ any reachable program point:
 4. A read of an uninitialised register or stack slot.
 5. A loop without a provable iteration bound (use a simple
    conservative analysis: dominator + back-edge detection plus a
-   per-back-edge counter capped at `BPFVI_MAX_LOOP_ITERS`).
+   per-back-edge counter capped at `MERLIN_MAX_LOOP_ITERS`).
 6. An `ecall` whose `a7` is not a `T_CONST` in the helper allow list.
 7. A division-by-zero (only relevant if you optionally support `M`).
 
@@ -150,8 +150,8 @@ For each bad test, the rejection message must:
 
 ### Task 6 — Run the accepted programs
 
-Wire the verifier into the interpreter from Lab 03: if `bpfvi-verify`
-accepts, `bpfvi` runs the program; otherwise it refuses to. Add a
+Wire the verifier into the interpreter from Lab 03: if `merlin-verify`
+accepts, `merlin` runs the program; otherwise it refuses to. Add a
 `--unsafe` flag to skip the verifier for debugging only.
 
 ## Deliverables
@@ -193,5 +193,5 @@ accepts, `bpfvi` runs the program; otherwise it refuses to. Add a
 
 ## What's next
 
-Lab 05 turns these scattered files into the `bpfv-objtool` user-space
-tool, the BPF-V counterpart of `bpftool` for the object format itself.
+Lab 05 turns these scattered files into the `merlin-objtool` user-space
+tool, the MERLIN-V counterpart of `bpftool` for the object format itself.

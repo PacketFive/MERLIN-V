@@ -1,11 +1,11 @@
-# 02 — BPF-V ISA and Bytecode
+# 02 — MERLIN-V ISA and Bytecode
 
 Status: profile pinned; helper ABI pinned; ELF format pinned
 Owner: PacketFive
 Last reviewed: ELF format spec landed
 
-This document defines the BPF-V *bytecode* — which is to say, the
-profile of the RISC-V ISA that a BPF-V program is permitted to use, and
+This document defines the MERLIN-V *bytecode* — which is to say, the
+profile of the RISC-V ISA that a MERLIN-V program is permitted to use, and
 the ABI rules layered on top of it.
 
 References:
@@ -18,15 +18,15 @@ References:
 
 ## 1. Profile names (decided)
 
-A BPF-V program declares which *profile* it requires. Two profiles
-are defined; a program names one of them in its `.bpfv.meta`
+A MERLIN-V program declares which *profile* it requires. Two profiles
+are defined; a program names one of them in its `.merlin.meta`
 section (§8), and the loader rejects a program whose declared
 profile is not enabled on the running execution engine.
 
 | Profile name | march string | psABI | Where it runs |
 | ------------ | ------------ | ----- | ------------- |
-| **`bpfv-linux-rv64`**  | `rv64imac_zicsr_zifencei` | lp64  | Default Linux in-kernel; MPFS Icicle Kit Linux on U54; RV64 SmartNIC firmware. |
-| **`bpfv-rtos-rv32`**   | `rv32imc_zicsr_zifencei` (optional `_a` for atomics) | ilp32 | Zephyr/RTOS; ESP32-C3-DevKitM-1; MPFS E51 monitor core; FPGA soft cores on PolarFire fabric. |
+| **`merlin-linux-rv64`**  | `rv64imac_zicsr_zifencei` | lp64  | Default Linux in-kernel; MPFS Icicle Kit Linux on U54; RV64 SmartNIC firmware. |
+| **`merlin-rtos-rv32`**   | `rv32imc_zicsr_zifencei` (optional `_a` for atomics) | ilp32 | Zephyr/RTOS; ESP32-C3-DevKitM-1; MPFS E51 monitor core; FPGA soft cores on PolarFire fabric. |
 
 `zicsr` and `zifencei` appear in both `march` strings because the
 *loader* uses CSRs and `fence.i` during install; the program
@@ -39,7 +39,7 @@ base march strings; see [06-verifier.md](06-verifier.md) §7.
 ### 1.1 Why not adopt RVA20U64 / RVA22U64?
 
 The RISC-V Application Profiles RVA20U64 and RVA22U64 **mandate
-F and D** (single- and double-precision floating point). BPF-V
+F and D** (single- and double-precision floating point). MERLIN-V
 forbids FP in kernel paths. Adopting an RVA profile name while
 disabling its mandatory extensions would be a misuse of the name.
 The project therefore defines its own profile names and pins
@@ -48,8 +48,8 @@ violating an external profile.
 
 ## 2. Permitted base ISAs
 
-The base ISA is `RV32I` (for `bpfv-rtos-rv32`) or `RV64I` (for
-`bpfv-linux-rv64`). No mixing.
+The base ISA is `RV32I` (for `merlin-rtos-rv32`) or `RV64I` (for
+`merlin-linux-rv64`). No mixing.
 
 ## 3. Extension policy (decided per profile)
 
@@ -60,7 +60,7 @@ image whose declared `march` does not include the extension;
 where a profile says "F" the verifier rejects any instruction
 belonging to it.
 
-| Ext | `bpfv-linux-rv64` | `bpfv-rtos-rv32` | Rationale |
+| Ext | `merlin-linux-rv64` | `merlin-rtos-rv32` | Rationale |
 | --- | ----------------- | ---------------- | --------- |
 | I (base)            | M | M | Required. |
 | M (mul/div)         | M | M | Modern compilers assume it; div-by-zero handled by verifier. |
@@ -71,7 +71,7 @@ belonging to it.
 | Zicsr               | F (programs)<br/>M (runtime) | F (programs)<br/>M (runtime) | Programs cannot read or write CSRs. Loader uses them. |
 | Zifencei            | F (programs)<br/>M (runtime) | F (programs)<br/>M (runtime) | Programs do not emit `fence.i`. Loader emits one after copying text. |
 | Zba, Zbb, Zbs       | O | O | Bit-manipulation, pure ALU, easy to verify; permitted if hardware provides. |
-| Zicboz, Zicbom, Zicbop | F | F | Cache-block management belongs to the kernel, not BPF-V programs. |
+| Zicboz, Zicbom, Zicbop | F | F | Cache-block management belongs to the kernel, not MERLIN-V programs. |
 | Ztso                | O | O | If hardware advertises Ztso, programs may rely on TSO; otherwise RVWMO with explicit fences. |
 | V (vector)          | F (Phase 2) | F | Verifier complexity. Revisit post-RFC v1. |
 | H (hypervisor), S (supervisor) | F | F | Privileged modes are never available to programs. |
@@ -88,7 +88,7 @@ Independent of extension selection, the following are always rejected:
 - All privileged instructions: `mret`, `sret`, `wfi`, `sfence.vma`,
   `hfence.*`, ...
 - All CSR instructions (`csrr*`, `csrw*`).
-- `ecall` *except* with `a7` set to a registered BPF-V helper number
+- `ecall` *except* with `a7` set to a registered MERLIN-V helper number
   (see §6 ABI). The verifier must prove `a7` is a compile-time constant
   helper id at every `ecall` site.
 - `ebreak` — replaced by a verifier-emitted trap helper if the program
@@ -100,9 +100,9 @@ Independent of extension selection, the following are always rejected:
 
 ## 5. Register usage
 
-Standard RISC-V ABI registers carry the following BPF-V meaning:
+Standard RISC-V ABI registers carry the following MERLIN-V meaning:
 
-| Reg | psABI role | BPF-V role |
+| Reg | psABI role | MERLIN-V role |
 | --- | ---------- | ---------- |
 | x0 (`zero`) | hardwired zero | same |
 | x1 (`ra`) | return address | same; verifier tracks call depth |
@@ -132,7 +132,7 @@ ret = prog(ctx)              // a0 = ctx pointer, return in a0
 ```
 
 `ctx` is a program-type-specific structure (e.g. `struct xdp_md_v`).
-The verifier knows the type from BTF-V and tracks every field access.
+The verifier knows the type from MERLIN BTF and tracks every field access.
 
 ### 6.2 Helper invocation (source-level encoding)
 
@@ -166,7 +166,7 @@ ld    t0, KFUNC_IDX*8(t0)       // 8/4 for rv64/rv32
 jalr  ra, t0, 0
 ```
 
-A BPF-V relocation (`R_BPFV_KFUNC_SLOT`) marks the table slot
+A MERLIN-V relocation (`R_MERLIN_KFUNC_SLOT`) marks the table slot
 with the kfunc name; the loader resolves it against the running
 kernel / firmware kfunc registry.
 
@@ -208,7 +208,7 @@ indirect dispatch at runtime.
 
 **Why ecall as the marker.** A literal `ecall` would trap to the
 next-higher privilege mode on real hardware, which is wrong:
-BPF-V programs already execute in kernel context in the
+MERLIN-V programs already execute in kernel context in the
 pass-through path. The rewrite at install time removes the
 problem entirely. Using `ecall` as a marker is convenient
 because (a) compilers emit it natively from a `syscall()`-shaped
@@ -237,23 +237,23 @@ value, ringbuf slot, etc.).
 
 ## 8. Object file format
 
-This section is the wire-format specification for BPF-V program
+This section is the wire-format specification for MERLIN-V program
 objects. A loader that conforms to this section can ingest any
 program produced by a conforming toolchain, and vice versa.
 
 ### 8.1 Overview
 
-A BPF-V object is a standard RISC-V ELF (`EM_RISCV`,
+A MERLIN-V object is a standard RISC-V ELF (`EM_RISCV`,
 `ELFCLASS32`/`ELFCLASS64` matching the bytecode profile,
 `ELFDATA2LSB` always) with these additional named sections:
 
 | Section name      | SHT type      | Purpose                                          |
 | ----------------- | ------------- | ------------------------------------------------ |
-| `.bpfv.meta`      | `SHT_PROGBITS`| Fixed-layout header describing the program       |
-| `.bpfv.maps`      | `SHT_PROGBITS`| Packed array of map descriptors                  |
-| `.bpfv.relocs`    | `SHT_PROGBITS`| Packed array of BPF-V-specific reloc records     |
-| `.bpfv.license`   | `SHT_PROGBITS`| NUL-terminated SPDX license identifier           |
-| `.BTF.v`          | `SHT_PROGBITS`| BTF-V type information (see [04-toolchain.md](04-toolchain.md)) |
+| `.merlin.meta`      | `SHT_PROGBITS`| Fixed-layout header describing the program       |
+| `.merlin.maps`      | `SHT_PROGBITS`| Packed array of map descriptors                  |
+| `.merlin.relocs`    | `SHT_PROGBITS`| Packed array of MERLIN-V-specific reloc records     |
+| `.merlin.license`   | `SHT_PROGBITS`| NUL-terminated SPDX license identifier           |
+| `.merlin.btf`          | `SHT_PROGBITS`| MERLIN BTF type information (see [04-toolchain.md](04-toolchain.md)) |
 
 Plus standard ELF sections used as expected:
 
@@ -261,10 +261,10 @@ Plus standard ELF sections used as expected:
 - `.rodata` — read-only constants. Loader copies into the program's
   R-mapped data region.
 - `.symtab`, `.strtab` — standard ELF symbol/string tables. Symbols
-  named here are referenced by `.bpfv.relocs` records.
+  named here are referenced by `.merlin.relocs` records.
 - `.rela.text` — standard `SHT_RELA` with `R_RISCV_*` relocs for
   internal PC-relative pairs, `JAL`, etc. The loader processes
-  these first, then `.bpfv.relocs`.
+  these first, then `.merlin.relocs`.
 
 The following sections, if present, cause the loader to **reject**
 the object:
@@ -279,36 +279,36 @@ Sections not listed above are ignored.
 
 ### 8.2 Endianness and alignment
 
-All multi-byte fields in `.bpfv.*` sections are **little-endian**,
+All multi-byte fields in `.merlin.*` sections are **little-endian**,
 regardless of host endianness. This applies even when the object
 is generated on a big-endian build host: RISC-V is canonically
-little-endian, BPF-V images are RISC-V machine code, and the
+little-endian, MERLIN-V images are RISC-V machine code, and the
 metadata that describes them follows the same convention.
 
 All structs defined in this section are **naturally aligned**.
 All sizes and counts are 32-bit. Strings are fixed-length,
 NUL-padded.
 
-### 8.3 `.bpfv.meta`
+### 8.3 `.merlin.meta`
 
 ```c
-#define BPFV_META_MAGIC    0x56465042u   /* 'BPFV' little-endian (B,P,F,V) */
-#define BPFV_META_VERSION  1u
+#define MERLIN_META_MAGIC    0x564C524Du   /* 'MRLV' little-endian (M,R,L,V) */
+#define MERLIN_META_VERSION  1u
 
-#define BPFV_NAME_MAX        32
-#define BPFV_TOOLCHAIN_MAX   32
+#define MERLIN_NAME_MAX        32
+#define MERLIN_TOOLCHAIN_MAX   32
 
-struct bpfv_meta_v1 {
+struct merlin_meta_v1 {
     /* --- identity --- */
-    uint32_t magic;             /* BPFV_META_MAGIC */
+    uint32_t magic;             /* MERLIN_META_MAGIC */
     uint16_t version_major;     /* 1 for v1; mismatch -> loader rejects */
     uint16_t version_minor;     /* loaders accept any v1.x */
     uint32_t meta_size;         /* sizeof(this struct as emitted); enables forward growth */
-    uint32_t flags;             /* BPFV_META_F_* (see below) */
+    uint32_t flags;             /* MERLIN_META_F_* (see below) */
 
     /* --- profile and program kind --- */
-    uint32_t bytecode_profile;  /* BPFV_PROFILE_LINUX_RV64 | BPFV_PROFILE_RTOS_RV32 */
-    uint32_t prog_type;         /* BPFV_PROG_TYPE_*; see 03-kernel-interfaces.md */
+    uint32_t bytecode_profile;  /* MERLIN_PROFILE_LINUX_RV64 | MERLIN_PROFILE_RTOS_RV32 */
+    uint32_t prog_type;         /* MERLIN_PROG_TYPE_*; see 03-kernel-interfaces.md */
     uint32_t expected_attach_type;
     uint32_t reserved0;         /* MBZ; reserved for future verifier_profile_hint */
 
@@ -318,8 +318,8 @@ struct bpfv_meta_v1 {
     uint32_t reserved1[2];      /* MBZ */
 
     /* --- human-readable identification --- */
-    char     prog_name[BPFV_NAME_MAX];        /* NUL-padded */
-    char     toolchain[BPFV_TOOLCHAIN_MAX];   /* e.g. "gcc 14.2 riscv64-linux-gnu" */
+    char     prog_name[MERLIN_NAME_MAX];        /* NUL-padded */
+    char     toolchain[MERLIN_TOOLCHAIN_MAX];   /* e.g. "gcc 14.2 riscv64-linux-gnu" */
 };
 ```
 
@@ -329,32 +329,32 @@ Total: 80 bytes for v1 (8 + 8 + 16 + 16 + 32 = 80; check: 4+2+2 + 4+4 + 4+4+4+4 
 
 ```c
 /* Section presence (must match actual section headers) */
-#define BPFV_META_F_HAS_BTF_V    (1u << 0)
-#define BPFV_META_F_HAS_MAPS     (1u << 1)
-#define BPFV_META_F_HAS_RELOCS   (1u << 2)
+#define MERLIN_META_F_HAS_BTF_V    (1u << 0)
+#define MERLIN_META_F_HAS_MAPS     (1u << 1)
+#define MERLIN_META_F_HAS_RELOCS   (1u << 2)
 
 /* Verifier-profile selection hints (reserved bits 8..15) */
-#define BPFV_META_F_SLEEPABLE    (1u << 8)
-#define BPFV_META_F_LARGEMEM     (1u << 9)
+#define MERLIN_META_F_SLEEPABLE    (1u << 8)
+#define MERLIN_META_F_LARGEMEM     (1u << 9)
 
 /* Extension-set declarations (reserved bits 16..23) */
-#define BPFV_META_F_NEED_A_EXT   (1u << 16)   /* uses A-ext atomics directly */
-#define BPFV_META_F_NEED_ZBB     (1u << 17)   /* uses Zbb instructions */
-#define BPFV_META_F_NEED_ZBA     (1u << 18)
-#define BPFV_META_F_NEED_ZBS     (1u << 19)
+#define MERLIN_META_F_NEED_A_EXT   (1u << 16)   /* uses A-ext atomics directly */
+#define MERLIN_META_F_NEED_ZBB     (1u << 17)   /* uses Zbb instructions */
+#define MERLIN_META_F_NEED_ZBA     (1u << 18)
+#define MERLIN_META_F_NEED_ZBS     (1u << 19)
 ```
 
 Loaders ignore unknown bits but log a warning. Programs MUST NOT
 rely on unknown bits being honoured.
 
-#### 8.3.1 Forward-compatibility rules for `bpfv_meta_v1`
+#### 8.3.1 Forward-compatibility rules for `merlin_meta_v1`
 
 The `meta_size` field permits growth without breaking older
 loaders:
 
-- A loader reads the first 12 bytes of `.bpfv.meta` to obtain
+- A loader reads the first 12 bytes of `.merlin.meta` to obtain
   magic + version + meta_size.
-- It validates `magic == BPFV_META_MAGIC` and
+- It validates `magic == MERLIN_META_MAGIC` and
   `version_major == 1`.
 - It reads `min(meta_size, sizeof(its known struct))` bytes into
   its local copy. Trailing bytes (newer minor versions) are
@@ -363,9 +363,9 @@ loaders:
   fields at their original offsets and append new fields.
 
 A future incompatible change requires bumping `version_major`,
-at which point the struct becomes `bpfv_meta_v2`.
+at which point the struct becomes `merlin_meta_v2`.
 
-### 8.4 `.bpfv.license`
+### 8.4 `.merlin.license`
 
 A single NUL-terminated SPDX license identifier string. Examples:
 
@@ -380,24 +380,24 @@ matching the policy in `bpf-next/kernel/bpf/syscall.c`'s
 is accepted for compatibility with existing toolchains but new
 objects should use full SPDX identifiers.
 
-### 8.5 `.bpfv.maps`
+### 8.5 `.merlin.maps`
 
 A packed array of fixed-layout records. The number of records is
-`section_size / sizeof(struct bpfv_map_desc_v1)`; the section
-size MUST be a multiple of `sizeof(struct bpfv_map_desc_v1)`.
+`section_size / sizeof(struct merlin_map_desc_v1)`; the section
+size MUST be a multiple of `sizeof(struct merlin_map_desc_v1)`.
 
 ```c
-#define BPFV_MAP_NAME_MAX  32
+#define MERLIN_MAP_NAME_MAX  32
 
-struct bpfv_map_desc_v1 {
-    char     name[BPFV_MAP_NAME_MAX];   /* NUL-padded; loader-visible identity */
-    uint32_t type;                       /* BPFV_MAP_TYPE_* */
+struct merlin_map_desc_v1 {
+    char     name[MERLIN_MAP_NAME_MAX];   /* NUL-padded; loader-visible identity */
+    uint32_t type;                       /* MERLIN_MAP_TYPE_* */
     uint32_t key_size;                   /* bytes */
     uint32_t value_size;                 /* bytes */
     uint32_t max_entries;
-    uint32_t flags;                      /* BPFV_MAP_F_* (parallel to BPF's BPF_F_*) */
-    uint32_t key_btf_id;                 /* index into .BTF.v; 0 = untyped */
-    uint32_t value_btf_id;               /* index into .BTF.v; 0 = untyped */
+    uint32_t flags;                      /* MERLIN_MAP_F_* (parallel to BPF's BPF_F_*) */
+    uint32_t key_btf_id;                 /* index into .merlin.btf; 0 = untyped */
+    uint32_t value_btf_id;               /* index into .merlin.btf; 0 = untyped */
     uint32_t inner_map_idx;              /* for map-in-map; 0xFFFFFFFFu = none */
     uint32_t reserved[3];                /* MBZ */
 };
@@ -408,34 +408,34 @@ Total: 80 bytes per record (32 + 4*9 + 12 = 80).
 Map type numbers:
 
 ```c
-#define BPFV_MAP_TYPE_UNSPEC          0
-#define BPFV_MAP_TYPE_HASH            1
-#define BPFV_MAP_TYPE_ARRAY           2
-#define BPFV_MAP_TYPE_PERCPU_HASH     3
-#define BPFV_MAP_TYPE_PERCPU_ARRAY    4
-#define BPFV_MAP_TYPE_LRU_HASH        5
-#define BPFV_MAP_TYPE_LPM_TRIE        6
-#define BPFV_MAP_TYPE_RINGBUF         7
-#define BPFV_MAP_TYPE_PROG_ARRAY      8   /* tail calls */
-#define BPFV_MAP_TYPE_XSKMAP          9   /* AF_XDP redirect */
-/* 10..127  reserved for future BPF-V map types */
+#define MERLIN_MAP_TYPE_UNSPEC          0
+#define MERLIN_MAP_TYPE_HASH            1
+#define MERLIN_MAP_TYPE_ARRAY           2
+#define MERLIN_MAP_TYPE_PERCPU_HASH     3
+#define MERLIN_MAP_TYPE_PERCPU_ARRAY    4
+#define MERLIN_MAP_TYPE_LRU_HASH        5
+#define MERLIN_MAP_TYPE_LPM_TRIE        6
+#define MERLIN_MAP_TYPE_RINGBUF         7
+#define MERLIN_MAP_TYPE_PROG_ARRAY      8   /* tail calls */
+#define MERLIN_MAP_TYPE_XSKMAP          9   /* AF_XDP redirect */
+/* 10..127  reserved for future MERLIN-V map types */
 /* 128..255 reserved for vendor / offload-specific map types */
 ```
 
 Where the semantic is identical, these numbers correspond 1:1
 with the matching `BPF_MAP_TYPE_*` from `bpf-next/include/uapi/linux/bpf.h`.
-The BPF-V kernel-side path implements them by delegating to the
+The MERLIN-V kernel-side path implements them by delegating to the
 existing `struct bpf_map_ops` instances (see
 [03-kernel-interfaces.md](03-kernel-interfaces.md) §5).
 
-### 8.6 `.bpfv.relocs`
+### 8.6 `.merlin.relocs`
 
 A packed array of fixed-layout records:
 
 ```c
-struct bpfv_reloc_v1 {
+struct merlin_reloc_v1 {
     uint32_t r_offset;   /* byte offset into .text where the reloc applies */
-    uint32_t r_type;     /* R_BPFV_* */
+    uint32_t r_type;     /* R_MERLIN_* */
     uint32_t r_sym;      /* type-specific: see per-type table */
     int32_t  r_addend;   /* signed addend */
     uint32_t r_extra0;   /* type-specific (e.g. CO-RE access kind) */
@@ -449,89 +449,89 @@ struct bpfv_reloc_v1 {
 Records MUST be sorted by `r_offset` ascending and MUST NOT
 overlap. `r_offset` MUST point inside `.text`.
 
-#### 8.6.1 `R_BPFV_*` type numbers
+#### 8.6.1 `R_MERLIN_*` type numbers
 
-The BPF-V reloc number space is **independent of the
+The MERLIN-V reloc number space is **independent of the
 `R_RISCV_*` space**. Standard RISC-V relocs (PC-relative pairs,
 `JAL`, etc.) live in `.rela.text` with their normal numbering;
-BPF-V relocs live in `.bpfv.relocs` with this numbering:
+MERLIN-V relocs live in `.merlin.relocs` with this numbering:
 
 | Type                     | Value | Patches at `r_offset`                         | Resolves against                                          |
 | ------------------------ | ----- | --------------------------------------------- | --------------------------------------------------------- |
-| `R_BPFV_NONE`            | 0     | (no-op)                                       | (none)                                                    |
-| `R_BPFV_HELPER_ID`       | 1     | 12-bit I-imm of `li a7, ?` (or `lui`+`addi` pair for larger ids) | helper id, looked up by `.symtab[r_sym].st_name`        |
-| `R_BPFV_KFUNC_SLOT`      | 2     | 12-bit I-imm of the `ld`/`lw` against the kfunc table | kfunc by name in `.symtab[r_sym]`                  |
-| `R_BPFV_MAP_FD`          | 3     | full 32-bit immediate pair (`lui`+`addi`)     | map descriptor index: `r_sym` is the index into `.bpfv.maps` (not `.symtab`) |
-| `R_BPFV_MAP_VALUE`       | 4     | full 32-bit immediate pair                    | map value pointer at offset `r_addend`; `r_sym` is `.bpfv.maps` index |
-| `R_BPFV_CORE_FIELD`      | 5     | 12-bit I-imm of a load/store                  | BTF field offset; `r_extra0` = access kind (see below)    |
-| `R_BPFV_CORE_SIZE`       | 6     | 12-bit I-imm of an `addi` (size literal)      | BTF type size                                             |
-| `R_BPFV_CORE_ENUMVAL`    | 7     | 12-bit I-imm                                  | BTF enum value                                            |
-| `R_BPFV_PROG_ENTRY`      | 8     | full 32-bit immediate pair                    | another BPF-V program's entry, by `.symtab[r_sym].st_name` (for tail calls) |
-| (9..63)                  |       | reserved for future BPF-V relocs              |                                                           |
+| `R_MERLIN_NONE`            | 0     | (no-op)                                       | (none)                                                    |
+| `R_MERLIN_HELPER_ID`       | 1     | 12-bit I-imm of `li a7, ?` (or `lui`+`addi` pair for larger ids) | helper id, looked up by `.symtab[r_sym].st_name`        |
+| `R_MERLIN_KFUNC_SLOT`      | 2     | 12-bit I-imm of the `ld`/`lw` against the kfunc table | kfunc by name in `.symtab[r_sym]`                  |
+| `R_MERLIN_MAP_FD`          | 3     | full 32-bit immediate pair (`lui`+`addi`)     | map descriptor index: `r_sym` is the index into `.merlin.maps` (not `.symtab`) |
+| `R_MERLIN_MAP_VALUE`       | 4     | full 32-bit immediate pair                    | map value pointer at offset `r_addend`; `r_sym` is `.merlin.maps` index |
+| `R_MERLIN_CORE_FIELD`      | 5     | 12-bit I-imm of a load/store                  | BTF field offset; `r_extra0` = access kind (see below)    |
+| `R_MERLIN_CORE_SIZE`       | 6     | 12-bit I-imm of an `addi` (size literal)      | BTF type size                                             |
+| `R_MERLIN_CORE_ENUMVAL`    | 7     | 12-bit I-imm                                  | BTF enum value                                            |
+| `R_MERLIN_PROG_ENTRY`      | 8     | full 32-bit immediate pair                    | another MERLIN-V program's entry, by `.symtab[r_sym].st_name` (for tail calls) |
+| (9..63)                  |       | reserved for future MERLIN-V relocs              |                                                           |
 | (64..127)                |       | reserved for vendor / offload-specific relocs |                                                           |
 
 Loaders reject any record whose `r_type` is in the
 "reserved for future" range — default-deny.
 
-#### 8.6.2 CO-RE access kinds (for `R_BPFV_CORE_FIELD`)
+#### 8.6.2 CO-RE access kinds (for `R_MERLIN_CORE_FIELD`)
 
 `r_extra0` carries the access kind:
 
 ```c
-#define BPFV_CORE_FIELD_BYTE_OFFSET  0
-#define BPFV_CORE_FIELD_BYTE_SIZE    1
-#define BPFV_CORE_FIELD_EXISTS       2
-#define BPFV_CORE_FIELD_SIGNED       3
-#define BPFV_CORE_FIELD_LSHIFT_U64   4
-#define BPFV_CORE_FIELD_RSHIFT_U64   5
+#define MERLIN_CORE_FIELD_BYTE_OFFSET  0
+#define MERLIN_CORE_FIELD_BYTE_SIZE    1
+#define MERLIN_CORE_FIELD_EXISTS       2
+#define MERLIN_CORE_FIELD_SIGNED       3
+#define MERLIN_CORE_FIELD_LSHIFT_U64   4
+#define MERLIN_CORE_FIELD_RSHIFT_U64   5
 ```
 
 Semantics match libbpf's CO-RE relocation handling; see
-`bpf-next/tools/lib/bpf/relo_core.h`. BPF-V's loader implements
-the same resolution logic, against `.BTF.v` and the running
+`bpf-next/tools/lib/bpf/relo_core.h`. MERLIN-V's loader implements
+the same resolution logic, against `.merlin.btf` and the running
 kernel's BTF.
 
-### 8.7 `.BTF.v`
+### 8.7 `.merlin.btf`
 
-BTF-V type information. The on-disk format is BTF (per
+MERLIN BTF type information. The on-disk format is BTF (per
 `bpf-next/Documentation/bpf/btf.rst`) with the project-specific
 extensions defined in [04-toolchain.md](04-toolchain.md) §3.
 Endianness and alignment rules in §8.2 apply. This section is
 referenced by `key_btf_id` and `value_btf_id` in
-`.bpfv.maps` records and by `r_sym` in CO-RE relocs.
+`.merlin.maps` records and by `r_sym` in CO-RE relocs.
 
 ### 8.8 Sample loader pseudocode
 
 ```c
-int bpfv_load_object(const void *elf, size_t elf_size,
-                     struct bpfv_prog **out)
+int merlin_load_object(const void *elf, size_t elf_size,
+                     struct merlin_prog **out)
 {
     const Elf_Ehdr *eh = elf;
 
     if (eh->e_ident[EI_DATA]  != ELFDATA2LSB)   return -EINVAL;
     if (eh->e_machine          != EM_RISCV)     return -EINVAL;
 
-    struct bpfv_meta_v1 *meta_raw =
-        find_section(elf, ".bpfv.meta");
+    struct merlin_meta_v1 *meta_raw =
+        find_section(elf, ".merlin.meta");
     if (!meta_raw)                              return -ENOENT;
 
     /* Read the smallest portion that contains magic+version+meta_size */
-    if (meta_raw->magic         != BPFV_META_MAGIC) return -EINVAL;
+    if (meta_raw->magic         != MERLIN_META_MAGIC) return -EINVAL;
     if (meta_raw->version_major != 1)               return -EINVAL;
 
-    struct bpfv_meta_v1 meta = {0};
+    struct merlin_meta_v1 meta = {0};
     size_t copy = MIN(meta_raw->meta_size,
-                      sizeof(struct bpfv_meta_v1));
+                      sizeof(struct merlin_meta_v1));
     memcpy(&meta, meta_raw, copy);
 
     /* Validate ELFCLASS matches the declared bytecode profile */
-    if (meta.bytecode_profile == BPFV_PROFILE_LINUX_RV64
+    if (meta.bytecode_profile == MERLIN_PROFILE_LINUX_RV64
         && eh->e_ident[EI_CLASS] != ELFCLASS64) return -EINVAL;
-    if (meta.bytecode_profile == BPFV_PROFILE_RTOS_RV32
+    if (meta.bytecode_profile == MERLIN_PROFILE_RTOS_RV32
         && eh->e_ident[EI_CLASS] != ELFCLASS32) return -EINVAL;
 
     /* License check */
-    const char *lic = find_section(elf, ".bpfv.license");
+    const char *lic = find_section(elf, ".merlin.license");
     if (!lic || !license_is_gpl_compatible(lic)) return -EPERM;
 
     /* Reject forbidden sections */
@@ -540,10 +540,10 @@ int bpfv_load_object(const void *elf, size_t elf_size,
      || has_section(elf, ".dynamic"))
         return -EINVAL;
 
-    /* Parse .bpfv.maps; create kernel maps */
+    /* Parse .merlin.maps; create kernel maps */
     /* Verify .text under the selected verifier profile */
     /* Apply .rela.text (standard R_RISCV_*) */
-    /* Apply .bpfv.relocs (R_BPFV_*) */
+    /* Apply .merlin.relocs (R_MERLIN_*) */
     /* Allocate exec memory, copy text, fence.i, install */
 
     return 0;
@@ -558,7 +558,7 @@ int bpfv_load_object(const void *elf, size_t elf_size,
 | Thread-local storage                            | Programs are not threads.                          |
 | Dynamic linking (`DT_NEEDED`, `dlopen`, PLT)    | Programs are self-contained; load-time resolution. |
 | Floating-point relocs                           | F/D extensions forbidden in both profiles (§3).    |
-| C++ exceptions, `.eh_frame` runtime use         | No exceptions in BPF-V programs.                   |
+| C++ exceptions, `.eh_frame` runtime use         | No exceptions in MERLIN-V programs.                   |
 | Compressed ELF sections (`SHF_COMPRESSED`)      | Loader stays simple; compress upstream if needed.  |
 | Multiple `.text` sections                       | Single entry; programs are a single compilation unit. |
 
@@ -568,14 +568,14 @@ of these MUST reject the object.
 
 ### 8.10 Open items
 
-- `R_BPFV_*` numbers above 8 are reserved but unassigned. As new
+- `R_MERLIN_*` numbers above 8 are reserved but unassigned. As new
   reloc kinds are needed (e.g. for sleepable program entries,
   for SIMD support if `V` lands), they are assigned here in
   ascending order.
 - Vendor / offload-specific map types (128..255) and reloc types
   (64..127): vendor registration mechanism. Out of scope for
   RFC v1; document in a follow-up if any vendor approaches.
-- The exact BTF-V extension format (referenced by §8.7) is
+- The exact MERLIN BTF extension format (referenced by §8.7) is
   specified in [04-toolchain.md](04-toolchain.md) §3 and is its
   own open item.
 
@@ -584,7 +584,7 @@ of these MUST reject the object.
 A minimal "drop everything" XDP-V program (conceptual, RV64I):
 
 ```c
-#include <bpfv/xdp.h>
+#include <merlin/xdp.h>
 
 SEC("xdp")
 int drop_all(struct xdp_md_v *ctx)
@@ -611,11 +611,11 @@ instructions. There is no eBPF-style decode step.
 
 - Decide whether `A`-extension AMOs are permitted directly in
   programs or only via helpers (independent of profile membership;
-  `A` is mandatory on `bpfv-linux-rv64` but the verifier policy
+  `A` is mandatory on `merlin-linux-rv64` but the verifier policy
   for raw AMOs is a separate question).
 - Decide whether vector (`V`) becomes a per-program flag inside
-  `bpfv-linux-rv64` post-RFC, or a new profile name
-  (`bpfv-linux-rv64v`). Out of scope for RFC v1.
+  `merlin-linux-rv64` post-RFC, or a new profile name
+  (`merlin-linux-rv64v`). Out of scope for RFC v1.
 - Decide policy on linker relaxation: verify before or after
   relaxation, or require `-mno-relax` from the compiler. See
   also [06-verifier.md](06-verifier.md) §8.
@@ -627,13 +627,13 @@ The following previously-open items are now **decided** (recorded
 here for traceability):
 
 - ~~Pin a specific RISC-V profile~~ → §1, decided: two project
-  profiles, `bpfv-linux-rv64` and `bpfv-rtos-rv32`.
+  profiles, `merlin-linux-rv64` and `merlin-rtos-rv32`.
 - ~~Decide compressed-instruction policy~~ → §3, decided: `C` is
   mandatory in both profiles.
 - ~~Helper invocation: `ecall` with `a7`, or jump-table~~ → §6.2
   and §6.4, decided: `ecall` source-level encoding, loader
   rewrites to direct call at install time.
-- ~~Define exact `.bpfv.*` section binary layouts~~ → §8.3–§8.7,
+- ~~Define exact `.merlin.*` section binary layouts~~ → §8.3–§8.7,
   decided.
-- ~~Define BPF-V-specific ELF reloc type numbers (`R_BPFV_*`)~~
+- ~~Define MERLIN-V-specific ELF reloc type numbers (`R_MERLIN_*`)~~
   → §8.6.1, decided.

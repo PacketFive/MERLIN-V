@@ -4,12 +4,12 @@ Status: starter
 Owner: PacketFive
 Last reviewed: initial draft
 
-This document describes how a verified BPF-V image becomes executable
+This document describes how a verified MERLIN-V image becomes executable
 code on (a) RISC-V hosts and accelerators and (b) non-RISC-V hosts.
 
 ## 1. Two paths, one image
 
-A JIT step exists for every verified BPF-V program — verified code is
+A JIT step exists for every verified MERLIN-V program — verified code is
 never executed as bytecode. What differs is whether that step has to
 *translate* the program or merely *install* it.
 
@@ -28,11 +28,11 @@ After the verifier accepts a program, the kernel chooses one of:
 For comparison, **eBPF's host path is always the second kind** — even
 on a RISC-V host, eBPF goes through `arch/riscv/net/bpf_jit_comp.c` to
 translate, because no commodity CPU implements eBPF's bytecode
-natively. BPF-V eliminates that translation on RISC-V targets and
+natively. MERLIN-V eliminates that translation on RISC-V targets and
 reuses (a stock-RISC-V-input version of) the same pattern everywhere
 else.
 
-A given BPF-V image can take either path without modification. The
+A given MERLIN-V image can take either path without modification. The
 choice is made by the runtime based on the host ISA and the program's
 declared profile.
 
@@ -40,19 +40,19 @@ declared profile.
 
 Steps:
 
-1. Allocate an executable, RX-mapped region (`bpfv_text_alloc()`),
+1. Allocate an executable, RX-mapped region (`merlin_text_alloc()`),
    honouring kernel hardening (X^W, RELRO-like rules).
 2. Copy the verified `.text` from the ELF.
 3. Resolve relocations:
    - Standard `R_RISCV_*` PC-relative relocs against the program's
      own data sections.
-   - `R_BPFV_HELPER_ID` — patch the `li a7, ID` immediate at the call
+   - `R_MERLIN_HELPER_ID` — patch the `li a7, ID` immediate at the call
      site.
-   - `R_BPFV_KFUNC_SLOT` — fill in the kfunc dispatch table entry.
-   - `R_BPFV_MAP_FD` — patch in the in-kernel pointer to the
+   - `R_MERLIN_KFUNC_SLOT` — fill in the kfunc dispatch table entry.
+   - `R_MERLIN_MAP_FD` — patch in the in-kernel pointer to the
      instantiated map.
-   - `R_BPFV_CORE_FIELD` — patch field offsets resolved against the
-     running BTF-V.
+   - `R_MERLIN_CORE_FIELD` — patch field offsets resolved against the
+     running MERLIN BTF.
 4. Emit `fence.i` (Zifencei) for I-cache coherence and the appropriate
    inner shareable IPI broadcast if SMP.
 5. Mark the page read-only, executable.
@@ -66,19 +66,19 @@ patching.
 
 This path is structurally similar to the per-architecture eBPF JITs
 already in the tree (`bpf-next/arch/$ARCH/net/bpf_jit_*.c`). The
-difference is the *input bytecode*: BPF-V's input is stock RISC-V
+difference is the *input bytecode*: MERLIN-V's input is stock RISC-V
 machine code (a defined profile of it), so the translator's decoder
 is a standard RISC-V decoder rather than an eBPF decoder, and its
 register file is RV's `x0..x31` rather than eBPF's `r0..r10`. The
 output side — emitting host code, doing register allocation,
 handling helper trampolines — looks much like the eBPF JITs.
 
-The host JIT lives under `kernel/bpfv/jit/arch/$HOST_ARCH.c`.
+The host JIT lives under `kernel/merlin/jit/arch/$HOST_ARCH.c`.
 
 Design:
 
 - Single-pass translator with a tiny peephole pass.
-- Each verified `struct bpfv_insn` (see [06-verifier.md](06-verifier.md))
+- Each verified `struct merlin_insn` (see [06-verifier.md](06-verifier.md))
   maps to a small fixed sequence of host instructions.
 - The RISC-V register file maps 1:1 to a virtual register set; the
   translator's register allocator pins frequently-used virtual
@@ -88,10 +88,10 @@ Design:
 Architectural notes per host:
 
 - **x86\_64.** Map RV `xN` to a `r12`-based virtual file with the busy
-  set on `rbx, r12–r15` plus `rbp`. `ecall` → `call bpfv_helper_trampoline`
+  set on `rbx, r12–r15` plus `rbp`. `ecall` → `call merlin_helper_trampoline`
   with `a7` materialised as the first call arg.
 - **arm64.** Map RV `xN` to `x19–x28` for callee-saved virtuals plus
-  scratch in `x9–x15`. `ecall` → `bl bpfv_helper_trampoline`.
+  scratch in `x9–x15`. `ecall` → `bl merlin_helper_trampoline`.
 
 Additional non-RISC-V host JITs (ppc64le, s390x, loongarch, etc.)
 are not in the project's plan: they belong to whichever future
@@ -99,20 +99,20 @@ contributor brings the corresponding hardware and the willingness to
 maintain the backend.
 
 The host JIT does *not* need to be byte-exact RVWMO-equivalent; it
-needs to be observably equivalent under the BPF-V memory model, which
+needs to be observably equivalent under the MERLIN-V memory model, which
 the verifier has already pinned down by tracking fences and atomics.
 
 ## 4. Compatibility with the kernel's existing eBPF JITs
 
 `bpf-next/arch/riscv/net/bpf_jit_*.c` is an **eBPF → RISC-V** JIT.
-That is the *opposite direction* from BPF-V's pass-through path
-(BPF-V's input is already RISC-V) and from BPF-V's host JIT (BPF-V's
+That is the *opposite direction* from MERLIN-V's pass-through path
+(MERLIN-V's input is already RISC-V) and from MERLIN-V's host JIT (MERLIN-V's
 output is non-RISC-V). The two stacks coexist trivially because
 their input bytecodes are different.
 
 The one place to be careful: on a RISC-V host running both eBPF and
-BPF-V, eBPF programs still go through `arch/riscv/net/bpf_jit_*` (no
-change), and BPF-V programs go through `kernel/bpfv/jit/pass_through.c`.
+MERLIN-V, eBPF programs still go through `arch/riscv/net/bpf_jit_*` (no
+change), and MERLIN-V programs go through `kernel/merlin/jit/pass_through.c`.
 They share map infrastructure (§5 of [03-kernel-interfaces.md](03-kernel-interfaces.md))
 but not text pages.
 
@@ -123,11 +123,11 @@ The "1:1 offload" claim is realised as follows.
 ### 5.1 RISC-V SmartNICs and PCIe/CXL/UALink accelerators
 
 1. Driver (`drivers/net/ethernet/$VENDOR/`) registers
-   `ndo_bpf` / `ndo_bpfv` capability.
-2. On `BPFV_LINK_CREATE` with offload mode, the kernel ships the
+   `ndo_bpf` / `ndo_merlin` capability.
+2. On `MERLIN_LINK_CREATE` with offload mode, the kernel ships the
    *post-verifier, post-relocation* image to the device over its
    control channel.
-3. Device firmware (the "BPF-V monitor") re-checks profile membership
+3. Device firmware (the "MERLIN-V monitor") re-checks profile membership
    (defence in depth), maps the image into a U-mode-equivalent
    sandbox, and installs it on a fast-path core.
 4. Maps are accessed via DMA-coherent regions or via a device-side
@@ -139,7 +139,7 @@ same instructions the host's RISC-V core would have.
 ### 5.2 FPGA soft cores (PolarFire MiV / VexRiscv)
 
 1. Bitstream synthesised with a small RV32IMC soft core.
-2. Host loads the verified BPF-V image into a BRAM/DDR region
+2. Host loads the verified MERLIN-V image into a BRAM/DDR region
    reachable by the soft core.
 3. A simple AXI mailbox kicks the soft core; the soft core executes
    the image.
@@ -150,7 +150,7 @@ claim and is one of the headline experiments for the RFC.
 ### 5.3 Microcontroller targets (ESP32-C3)
 
 The C3 is not an offload target in the SmartNIC sense — it is the
-host. The BPF-V runtime on Zephyr loads a verified image into RAM,
+host. The MERLIN-V runtime on Zephyr loads a verified image into RAM,
 flushes I-cache, and jumps. Same machinery as the kernel pass-through
 path, just on a much smaller runtime.
 
@@ -168,7 +168,7 @@ path, just on a much smaller runtime.
 
 ## 7. Open items
 
-- Lock down the BPF-V-specific reloc type numbers (`R_BPFV_*`).
+- Lock down the MERLIN-V-specific reloc type numbers (`R_MERLIN_*`).
 - Decide whether the host JIT emits position-independent code (so we
   can support live-update / hot-patch of programs).
 - Decide cache-line and TLB-shootdown discipline for SMP installs.

@@ -8,11 +8,11 @@ Design doc: [`docs/design/05-reference-platforms.md`](../design/05-reference-pla
 
 ## Learning objectives
 
-- Build a Zephyr application that includes BPF-V runtime code as a
+- Build a Zephyr application that includes MERLIN-V runtime code as a
   module.
 - Port the user-space pass-through path to a no-`malloc`, no-`mmap`
   environment.
-- Load a BPF-V image over UART into a Zephyr device and run it from
+- Load a MERLIN-V image over UART into a Zephyr device and run it from
   the Zephyr shell.
 
 ## Background reading
@@ -29,13 +29,13 @@ You will build `runtime/zephyr/`, a Zephyr application that:
 
 1. Boots on `qemu_riscv32`.
 2. Reserves a static, RX-mapped buffer (using Zephyr's
-   `K_APP_DMEM`/MPU regions) of `BPFV_TEXT_MAX_BYTES` (suggest 16 KiB).
+   `K_APP_DMEM`/MPU regions) of `MERLIN_TEXT_MAX_BYTES` (suggest 16 KiB).
 3. Exposes a Zephyr shell command:
 
    ```
-   bpfvi load <elf-stream>
-   bpfvi run  <prog_id> [hex-ctx]
-   bpfvi info
+   merlin load <elf-stream>
+   merlin run  <prog_id> [hex-ctx]
+   merlin info
    ```
 
 4. Accepts ELFs over UART, base64-framed (lab provides the framer).
@@ -50,12 +50,12 @@ You will build `runtime/zephyr/`, a Zephyr application that:
 - **No file system**. ELF lives in RAM, transient.
 - **No SMP**. The board is single-core.
 - The verifier's step cap is *tighter* than on Linux (call it
-  `BPFV_VERIFY_STEPS_EMBEDDED = 8192`).
+  `MERLIN_VERIFY_STEPS_EMBEDDED = 8192`).
 
 ### MPU and W^X
 
 Zephyr's MPU exposes a fixed number of regions. The lab's CMake
-configuration places the BPF-V text region in its own MPU slot. When
+configuration places the MERLIN-V text region in its own MPU slot. When
 loading:
 
 1. Make the region RW from kernel context.
@@ -81,12 +81,12 @@ the tighter step cap.
 
 ### Task 3 — Port the JIT (pass-through)
 
-The same `bpfvi-jit` core from Lab 06 runs here, but allocation is
+The same `merlin-jit` core from Lab 06 runs here, but allocation is
 *static*. The MPU dance replaces `mprotect`.
 
 ### Task 4 — Shell commands
 
-Implement `bpfvi load`, `bpfvi run`, `bpfvi info`. Provide a Python
+Implement `merlin load`, `merlin run`, `merlin info`. Provide a Python
 host script `tools/upload.py` to push ELFs over the QEMU serial
 console; the lab ships the framer.
 
@@ -94,11 +94,11 @@ console; the lab ships the framer.
 
 Build, with `riscv32-zephyr-elf-gcc -march=rv32imc -mabi=ilp32`:
 
-- `samples/blinky.bpfv.S` — toggles a Zephyr GPIO via a helper that
+- `samples/blinky.merlin.S` — toggles a Zephyr GPIO via a helper that
   calls `gpio_pin_toggle_dt(...)`.
-- `samples/timer.bpfv.S` — uses a helper that reads `k_uptime_get()`
+- `samples/timer.merlin.S` — uses a helper that reads `k_uptime_get()`
   and returns elapsed ms between two calls.
-- `samples/classify.bpfv.S` — takes a 14-byte Ethernet header in
+- `samples/classify.merlin.S` — takes a 14-byte Ethernet header in
   `ctx`, returns the EtherType.
 
 ### Task 6 — Boot-time bench

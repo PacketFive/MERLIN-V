@@ -111,7 +111,7 @@ riscv64-linux-gnu-gcc -nostdlib -static -O2 \
 qemu-riscv64-static build/strlen
 ```
 
-Where `main.c` calls `my_strlen("hello, BPF-V")` and exits with the
+Where `main.c` calls `my_strlen("hello, MERLIN-V")` and exits with the
 length.
 
 ### Task 6 — Disassemble eBPF's RISC-V JIT output
@@ -124,7 +124,7 @@ annotated result to `build/rv64_jit_annotated.txt`.
 ### Task 7 — Forbidden instructions
 
 For each instruction below, locate (by opcode bits) which extension
-it belongs to and whether it's allowed in BPF-V's default in-kernel
+it belongs to and whether it's allowed in MERLIN-V's default in-kernel
 profile (per `docs/design/02-isa-and-bytecode.md` §3):
 
 1. `csrr t0, mcycle`
@@ -166,5 +166,5 @@ profile (per `docs/design/02-isa-and-bytecode.md` §3):
 
 ## What's next
 
-Lab 03 starts the BPF-V implementation: a small user-space interpreter
+Lab 03 starts the MERLIN-V implementation: a small user-space interpreter
 for an RV32I subset, executing real ELF-packaged programs.

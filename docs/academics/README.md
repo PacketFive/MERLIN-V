@@ -1,4 +1,4 @@
-# BPF-V — Advanced Operating Systems Design Course
+# MERLIN-V — Advanced Operating Systems Design Course
 
 > **Audience.** Graduate-level / senior-undergraduate students who have
 > completed an introductory operating systems course (process model,
@@ -6,7 +6,7 @@
 > course in C. Familiarity with the Linux kernel build is helpful but
 > not required.
 >
-> **Anchor project.** BPF-V — a clean-room, in-kernel JIT VM whose
+> **Anchor project.** MERLIN-V — a clean-room, in-kernel JIT VM whose
 > bytecode is the RISC-V ISA. See [`../design/`](../design/) for the
 > design record this course is built around.
 
@@ -20,13 +20,13 @@ By the end of the course, a student can:
 - Implement, in user space, a minimal verifier (abstract interpreter)
   and a minimal JIT for a restricted RISC-V profile.
 - Build, load, and run an out-of-tree Linux kernel module that hosts a
-  toy "BPF-V" runtime, and understand the interactions with kernel
+  toy "MERLIN-V" runtime, and understand the interactions with kernel
   memory, IPIs, and I-cache coherence.
 - Port the same runtime to Zephyr RTOS on a RISC-V microcontroller and
   explain the differences from the Linux path.
 - Reason about the verifier as a soundness boundary and discuss the
   consequences of a verifier bug in a production system.
-- Critique the BPF-V design honestly: what it improves over eBPF,
+- Critique the MERLIN-V design honestly: what it improves over eBPF,
   what it makes harder, and where the open questions are.
 
 ## 2. Prerequisites
@@ -56,9 +56,9 @@ Strict non-prerequisites (we teach them in-course):
 | [00](lab-00-environment-setup.md) | Environment setup | Toolchains, QEMU, kernel build, Zephyr SDK, submodules | S |
 | [01](lab-01-ebpf-dissection.md) | eBPF dissection | Build, load, dump, and trace a real eBPF program; learn the moving parts | M |
 | [02](lab-02-riscv-isa-primer.md) | RISC-V ISA primer | Read RV32IM / RV64IM, disassemble GCC and Clang output, identify ABI conventions | M |
-| [03](lab-03-userland-bpfv-interp.md) | User-space BPF-V interpreter | Decode and execute a small RV32I program from an ELF in user space | M |
+| [03](lab-03-userland-merlin-interp.md) | User-space MERLIN-V interpreter | Decode and execute a small RV32I program from an ELF in user space | M |
 | [04](lab-04-minimal-verifier.md) | Minimal verifier | Abstract interpretation: register types, ranges, pointer provenance | L |
-| [05](lab-05-bpfv-objtool.md) | `bpfv-objtool` | ELF parsing, `.bpfv.*` section validation, relocation cataloguing | M |
+| [05](lab-05-merlin-objtool.md) | `merlin-objtool` | ELF parsing, `.merlin.*` section validation, relocation cataloguing | M |
 | [06](lab-06-passthrough-jit.md) | Pass-through JIT (user space) | `mmap` RX, copy text, fix relocs, `__builtin___clear_cache`, jump | M |
 | [07](lab-07-host-jit-x86_64.md) | Host JIT for x86\_64 | Single-pass RISC-V → x86\_64 translator with a tiny peephole pass | L |
 | [08](lab-08-kernel-module.md) | Out-of-tree kernel module | Char device + `ioctl` + executable page allocation + I-cache flush | L |
@@ -144,7 +144,7 @@ path graded on QEMU.
 
 ## 7. AI policy
 
-This course uses BPF-V's [AI agent policy](../AI/AGENT_INSTRUCTIONS.md)
+This course uses MERLIN-V's [AI agent policy](../AI/AGENT_INSTRUCTIONS.md)
 as its baseline for AI assistance:
 
 - AI-generated code is **permitted** but must be:

@@ -4,7 +4,7 @@ Status: starter
 Owner: PacketFive
 Last reviewed: initial draft
 
-This document records what eBPF is, factually, and where BPF-V chooses
+This document records what eBPF is, factually, and where MERLIN-V chooses
 to diverge. It is the input to the "Related work" / "Background"
 section of the eventual RFC and paper.
 
@@ -29,7 +29,7 @@ Authoritative references in this tree:
 - `bpf-next/arch/*/net/bpf_jit*` — per-architecture JIT backends
   (including `arch/riscv/net/bpf_jit*` — eBPF JIT *targeting* RISC-V,
   which is conceptually adjacent but architecturally orthogonal to
-  BPF-V).
+  MERLIN-V).
 - `bpf-next/tools/lib/bpf/` — libbpf.
 
 ### 1.1 ISA shape
@@ -91,9 +91,9 @@ Authoritative references in this tree:
 - This is a re-translation step: eBPF bytecode → NFP microcode. There
   is no native eBPF silicon at production scale.
 
-## 2. Side-by-side: eBPF vs BPF-V
+## 2. Side-by-side: eBPF vs MERLIN-V
 
-| Dimension | eBPF | BPF-V |
+| Dimension | eBPF | MERLIN-V |
 | --------- | ---- | ----- |
 | Bytecode ISA | Custom 64-bit RISC-like (11 GPRs, 8-byte insns) | Restricted RV32I[MC] / RV64I[MC] profile (native RISC-V machine code) |
 | Register file | r0–r10 (r10 fp, ro) | RV ABI: x0..x31 with verifier-imposed conventions on x1/x2/x8/x10–x17 |
@@ -103,9 +103,9 @@ Authoritative references in this tree:
 | JIT cost on host | Always translate to host ISA — including on RISC-V hosts, because no silicon implements eBPF natively | RISC-V hosts: pass-through (no instruction translation); non-RISC-V hosts: real JIT, structurally similar to eBPF's per-arch JITs but with stock RISC-V machine code as input |
 | HW offload on RISC-V NIC | Re-translate eBPF → NIC ISA | None: load image and run |
 | Memory model | Sequential at insn granularity, atomics via dedicated helpers | RVWMO baseline; `A` extension optional; fences via `fence`/`fence.i`, profile-controlled |
-| Type info | BTF | BTF-V (BTF + RISC-V reloc kinds), see [04-toolchain.md](04-toolchain.md) |
+| Type info | BTF | MERLIN BTF (BTF + RISC-V reloc kinds), see [04-toolchain.md](04-toolchain.md) |
 | Portability mechanism | CO-RE | CO-RE-V (same idea, RISC-V relocs) |
-| Userland library | libbpf | libbpfv (analogous; may share BTF infra) |
+| Userland library | libbpf | libmerlin (analogous; may share BTF infra) |
 | OS reach | Linux, Windows (eBPF-for-Windows) | Linux, Zephyr, bare-metal accelerator firmware |
 | License model | Kernel pieces GPL-2.0; libbpf dual GPL/BSD | Same |
 
@@ -132,38 +132,38 @@ Authoritative references in this tree:
 
 These are the targeted measurements for the RFC/paper. Note the
 explicit null hypothesis: not every measurement is expected to show
-a BPF-V win, and we will report negative results as such (see
+a MERLIN-V win, and we will report negative results as such (see
 [`00-overview.md`](00-overview.md) §8.1).
 
-1. **Verifier cost** on equivalent programs (eBPF vs BPF-V profile).
-   Hypothesis: comparable; BPF-V may pay a small constant for a
+1. **Verifier cost** on equivalent programs (eBPF vs MERLIN-V profile).
+   Hypothesis: comparable; MERLIN-V may pay a small constant for a
    richer decoder, recovered by simpler typing rules.
 2. **Load-to-run latency**: bytecode load → first instruction
    executed, on:
    - Linux / x86\_64 — real JIT for both. Hypothesis: comparable.
-   - Linux / RISC-V — eBPF JIT vs BPF-V pass-through. Hypothesis:
-     BPF-V substantially lower (no instruction translation).
-   - RISC-V SmartNIC offload path. Hypothesis: BPF-V substantially
+   - Linux / RISC-V — eBPF JIT vs MERLIN-V pass-through. Hypothesis:
+     MERLIN-V substantially lower (no instruction translation).
+   - RISC-V SmartNIC offload path. Hypothesis: MERLIN-V substantially
      lower (no re-translation to vendor microcode).
 3. **Steady-state per-packet cycles** on XDP-equivalent workloads:
-   - x86\_64 host, eBPF vs BPF-V. **Hypothesis: null result.**
-     Reported deliberately to set the record straight — BPF-V's
+   - x86\_64 host, eBPF vs MERLIN-V. **Hypothesis: null result.**
+     Reported deliberately to set the record straight — MERLIN-V's
      wins on commodity hosts are not at the per-packet steady-state
      level (see [`00-overview.md`](00-overview.md) §8).
-   - RISC-V host, eBPF vs BPF-V. Hypothesis: comparable, with BPF-V
+   - RISC-V host, eBPF vs MERLIN-V. Hypothesis: comparable, with MERLIN-V
      having a load-time advantage that does not affect steady state.
-   - RISC-V NIC offload vs host eBPF. Hypothesis: BPF-V offload
+   - RISC-V NIC offload vs host eBPF. Hypothesis: MERLIN-V offload
      substantially faster.
-4. **Code size** of the verifier + JIT in BPF-V vs eBPF + per-arch
+4. **Code size** of the verifier + JIT in MERLIN-V vs eBPF + per-arch
    JITs. Hypothesis: initially larger (parallel stacks); converges
    if Option A in [`06-verifier.md`](06-verifier.md) §4 succeeds.
 5. **Toolchain footprint**: lines of code, build time, and bug-fix
    latency in the eBPF LLVM target and `gcc-bpf` backend over the
-   last five years, compared to the cost of the BPF-V project's
+   last five years, compared to the cost of the MERLIN-V project's
    header set and minor pahole work. Static measurement, no
-   prototype required. Hypothesis: substantial BPF-V advantage.
+   prototype required. Hypothesis: substantial MERLIN-V advantage.
 6. **Energy per packet** on the Icicle Kit (MPFS) and ESP32-C3
-   (rv32imc) reference targets. Hypothesis: BPF-V demonstrates
+   (rv32imc) reference targets. Hypothesis: MERLIN-V demonstrates
    feasibility in regimes where eBPF was never deployed.
 
 The methodology for each will be specified in a follow-up

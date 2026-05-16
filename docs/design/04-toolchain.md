@@ -1,10 +1,10 @@
-# 04 — Toolchain (Compiler, libbpfv, BTF-V, CO-RE-V)
+# 04 — Toolchain (Compiler, libmerlin, MERLIN BTF, CO-RE-V)
 
 Status: starter
 Owner: PacketFive
 Last reviewed: initial draft
 
-This document records how BPF-V programs are produced and packaged in
+This document records how MERLIN-V programs are produced and packaged in
 user space, and the rationale for the compiler choice.
 
 ## 1. The compiler question
@@ -20,13 +20,13 @@ target either GCC or LLVM had. So the BPF community wrote LLVM's BPF
 backend (and later `gcc-bpf`). The maintenance cost of those backends
 is non-trivial and they trail the host backends in features.
 
-BPF-V's bytecode **is** RISC-V. Both GCC and LLVM have production
+MERLIN-V's bytecode **is** RISC-V. Both GCC and LLVM have production
 RISC-V backends already (`riscv32-*`, `riscv64-*`). No custom backend
 is required. The only project-specific compiler work is:
 
-1. A small **header set** (`<bpfv/*.h>`) declaring helper prototypes,
+1. A small **header set** (`<merlin/*.h>`) declaring helper prototypes,
    `SEC("...")` macros, `ctx` types per program type.
-2. A small **plugin or post-processing pass** that emits the BPF-V
+2. A small **plugin or post-processing pass** that emits the MERLIN-V
    meta/maps/relocs sections.
 3. Optional **clang/LLVM plugin** and **GCC plugin** for CO-RE-V
    relocations (similar to libbpf's `__builtin_preserve_access_index`).
@@ -45,16 +45,16 @@ RTOS targets, treat Clang/LLVM as a co-equal alternative.
 
 | Use case | Reference compiler | Notes |
 | -------- | ------------------ | ----- |
-| Linux in-kernel BPF-V programs (host) | GCC RISC-V | Aligns with kernel build infra; `riscv64-linux-gnu-gcc` is ubiquitous. |
+| Linux in-kernel MERLIN-V programs (host) | GCC RISC-V | Aligns with kernel build infra; `riscv64-linux-gnu-gcc` is ubiquitous. |
 | Zephyr / ESP32-C3 / MPFS bare metal | GCC RISC-V (Zephyr SDK) | SDK default; CI matches. |
-| User-space BPF-V loaders / libbpfv | Either | Builds with both. |
+| User-space MERLIN-V loaders / libmerlin | Either | Builds with both. |
 | RFC submitter machines | Either | We commit a reproducible build for both. |
 | Vendor accelerators | Whatever the vendor SDK ships | Often LLVM. Make sure both work. |
 
 Reasons against picking only one:
 
 - The kernel itself supports both GCC and Clang builds now
-  (`make LLVM=1`); reflecting that posture in BPF-V signals respect for
+  (`make LLVM=1`); reflecting that posture in MERLIN-V signals respect for
   both communities.
 - LLVM has a faster cadence on some RISC-V extensions (e.g. early RVV
   intrinsics, profile flags). Keeping it on the supported list lets us
@@ -63,7 +63,7 @@ Reasons against picking only one:
 
 ### 1.4 Required compiler flags (per pinned profile)
 
-For programs targeting **`bpfv-linux-rv64`** with
+For programs targeting **`merlin-linux-rv64`** with
 `riscv64-linux-gnu-gcc`:
 
 ```
@@ -81,7 +81,7 @@ For programs targeting **`bpfv-linux-rv64`** with
 -Werror=implicit-function-declaration
 ```
 
-For programs targeting **`bpfv-linux-rv64`** with
+For programs targeting **`merlin-linux-rv64`** with
 `clang --target=riscv64-unknown-linux-gnu`:
 
 ```
@@ -95,7 +95,7 @@ For programs targeting **`bpfv-linux-rv64`** with
 -nostdlib
 ```
 
-For programs targeting **`bpfv-rtos-rv32`** (embedded), swap to
+For programs targeting **`merlin-rtos-rv32`** (embedded), swap to
 `riscv32-unknown-elf-gcc` (or `riscv32-zephyr-elf-gcc`) and
 `-mabi=ilp32`, `-march=rv32imc_zicsr_zifencei` (add `_a` if the
 target has the `A` extension). Use `-mno-relax` if the loader on
@@ -110,28 +110,28 @@ verifier's relaxation policy is an open item — see
 - Shipping a custom assembler. (`gas` and `llvm-mc` are fine.)
 - Inventing an IR. The IR *is* the ELF.
 
-## 2. `libbpfv` (user-space runtime library)
+## 2. `libmerlin` (user-space runtime library)
 
 A C library, dual-licensed GPL-2.0 / BSD-2-Clause to match `libbpf`'s
 posture, providing:
 
-- `bpfv_object__open(path)` — parse ELF, surface programs/maps.
-- `bpfv_object__load(obj)` — issue `BPFV_BTF_LOAD`, `BPFV_MAP_CREATE`,
-  `BPFV_PROG_LOAD` for each component.
-- `bpfv_program__attach_xdp(prog, ifindex)` etc. — hook attachment.
+- `merlin_object__open(path)` — parse ELF, surface programs/maps.
+- `merlin_object__load(obj)` — issue `MERLIN_BTF_LOAD`, `MERLIN_MAP_CREATE`,
+  `MERLIN_PROG_LOAD` for each component.
+- `merlin_program__attach_xdp(prog, ifindex)` etc. — hook attachment.
 - Map accessors mirroring libbpf.
-- A skeletons generator (`bpfvtool gen skeleton`) so programs can be
+- A skeletons generator (`merlintool gen skeleton`) so programs can be
   embedded in a host binary, libbpf-style.
 
-`libbpfv` lives in `tools/lib/bpfv/` (mirroring `tools/lib/bpf/`).
-We *will not* statically link or vendor `libbpf` into `libbpfv`, but
-where the in-kernel implementation reuses BPF maps, `libbpfv` may call
+`libmerlin` lives in `tools/lib/merlin/` (mirroring `tools/lib/bpf/`).
+We *will not* statically link or vendor `libbpf` into `libmerlin`, but
+where the in-kernel implementation reuses BPF maps, `libmerlin` may call
 `libbpf` for map manipulation as a convenience layer. Decision deferred
 to RFC review.
 
-## 3. BTF-V
+## 3. MERLIN BTF
 
-BTF-V is BTF with two additions:
+MERLIN BTF is BTF with two additions:
 
 - A new tag space for RISC-V-specific relocations (CO-RE-V field
   offsets keyed on the running kernel/firmware's RISC-V ABI choices).
@@ -139,7 +139,7 @@ BTF-V is BTF with two additions:
   names, types, byte offsets) so the verifier and the loader agree on
   the contract.
 
-`pahole`'s BTF emitter is the upstream truth for BTF; BTF-V additions
+`pahole`'s BTF emitter is the upstream truth for BTF; MERLIN BTF additions
 will be proposed as a `pahole` patch series in parallel with the kernel
 RFC.
 
@@ -147,27 +147,27 @@ RFC.
 
 Same conceptual mechanism as eBPF CO-RE:
 
-1. Programs reference kernel types via `BPFV_CORE_READ(...)` etc.
+1. Programs reference kernel types via `MERLIN_CORE_READ(...)` etc.
 2. The compiler emits a CO-RE-V relocation entry naming the field by
    `(type, member)` plus the access kind.
 3. At load time the kernel/firmware resolves the relocation against the
-   live BTF-V and patches the program image.
+   live MERLIN BTF and patches the program image.
 
-For BPF-V the patching happens on RISC-V instructions (e.g.,
+For MERLIN-V the patching happens on RISC-V instructions (e.g.,
 rewriting a 12-bit immediate offset in an `ld` instruction).
 
-## 5. `bpfvtool`
+## 5. `merlintool`
 
 A CLI patterned on `bpftool`:
 
 ```
-bpfvtool prog load file.bpfv.o /sys/fs/bpf/foo
-bpfvtool prog show
-bpfvtool prog dump xlated id 7              # disassemble RISC-V
-bpfvtool prog dump jited id 7               # on non-RV hosts only
-bpfvtool map show
-bpfvtool btf-v dump file foo.btf.v
-bpfvtool gen skeleton file.bpfv.o > file.skel.h
+merlintool prog load file.merlin.o /sys/fs/bpf/foo
+merlintool prog show
+merlintool prog dump xlated id 7              # disassemble RISC-V
+merlintool prog dump jited id 7               # on non-RV hosts only
+merlintool map show
+merlintool btf-v dump file foo.btf.v
+merlintool gen skeleton file.merlin.o > file.skel.h
 ```
 
 Disassembly leans on `binutils`' `objdump -d -Mriscv` rather than
@@ -175,9 +175,9 @@ re-implementing a disassembler.
 
 ## 6. Open items
 
-- Decide whether to ship one shared header set (`<bpfv/*.h>`) for both
+- Decide whether to ship one shared header set (`<merlin/*.h>`) for both
   GCC and Clang, or two with `#ifdef __clang__` shims.
 - Decide CO-RE-V reloc record encoding (raw BTF reuse vs. dedicated
   section).
 - Decide skeleton ABI (drop-in pattern matching libbpf's, or distinct?).
-- Decide whether `libbpfv` taps `libbpf` for shared map APIs.
+- Decide whether `libmerlin` taps `libbpf` for shared map APIs.

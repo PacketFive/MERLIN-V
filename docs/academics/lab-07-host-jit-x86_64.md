@@ -23,7 +23,7 @@ Design doc: [`docs/design/07-jit-and-offload.md`](../design/07-jit-and-offload.m
 
 ## Specification
 
-You will build `bpfvi-jit-x86_64`, which takes a verified BPF-V ELF and
+You will build `merlin-jit-x86_64`, which takes a verified MERLIN-V ELF and
 emits x86\_64 machine code that, when called, produces the same
 observable behaviour the program would have on a RISC-V host.
 
@@ -66,7 +66,7 @@ small function emitting x86 bytes. Examples:
 - `ecall`:
   - load `a7` slot to `rax`
   - `mov  rdi, [a0_slot]; mov rsi, [a1_slot]; ...`
-  - `call bpfvi_helper_dispatch` (passes `rax` as helper id via
+  - `call merlin_helper_dispatch` (passes `rax` as helper id via
     a calling convention you define)
 
 A small peephole pass merges adjacent `mov reg, mem; op` into
@@ -75,7 +75,7 @@ the intermediate is dead.
 
 ### Trampoline
 
-You ship a `bpfvi_helper_dispatch` trampoline in C that:
+You ship a `merlin_helper_dispatch` trampoline in C that:
 1. Reads the helper id from the agreed register/slot.
 2. Dispatches to the helper table from Lab 03.
 3. Returns the value in `rax` (mapped to `a0` slot on return).
@@ -106,7 +106,7 @@ Function exit: `mov rsp, rbp; pop rbp; ret`.
 
 ### Task 3 — Per-instruction translator
 
-`src/translate.c` walks Lab 04's decoded `bpfvi_insn` stream and
+`src/translate.c` walks Lab 04's decoded `merlin_insn` stream and
 calls the right emitter. Maintain a `pc → host_addr` map for branch
 fixups.
 
@@ -133,7 +133,7 @@ hardware). Note where the differences come from.
 - A passing autograder log on x86\_64.
 - `WRITEUP.md`:
   - Where does your translator *do less* than a real optimizing
-    compiler, and why does that matter for BPF-V's goal of cheap
+    compiler, and why does that matter for MERLIN-V's goal of cheap
     load-time JIT?
   - One translation you specifically chose for correctness over
     speed.
@@ -166,5 +166,5 @@ hardware). Note where the differences come from.
 ## What's next
 
 Lab 08 takes the same machinery in-kernel: an out-of-tree module that
-loads BPF-V programs via `ioctl`, runs them in kernel mode, and shows
+loads MERLIN-V programs via `ioctl`, runs them in kernel mode, and shows
 you the seams between user and kernel JIT environments.

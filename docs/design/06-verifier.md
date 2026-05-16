@@ -17,13 +17,13 @@ self-modifying code, no FP. RISC-V was designed for *execution*, not
 verification, so we cannot simply lift the eBPF verifier onto a stock
 RISC-V profile.
 
-The BPF-V verifier therefore combines two ideas:
+The MERLIN-V verifier therefore combines two ideas:
 
 1. **ISA-profile restrictions** that bring RISC-V closer to a
    verifiable subset (§2 of [02-isa-and-bytecode.md](02-isa-and-bytecode.md)).
 2. **Abstract interpretation** over the resulting profile, tracking
    the same things eBPF's verifier tracks (register types, ranges,
-   alignment, pointer provenance, liveness), driven by BTF-V (§3 of
+   alignment, pointer provenance, liveness), driven by MERLIN BTF (§3 of
    [04-toolchain.md](04-toolchain.md)).
 
 ## 2. Properties verified
@@ -39,7 +39,7 @@ For a program to be accepted:
      established frame, or (b) a kfunc table entry whose value the
      verifier knows to be a registered kfunc pointer.
    - All loops are bounded (compile-time-known iteration count) or
-     use the project-supplied `bpfv_loop()` helper.
+     use the project-supplied `merlin_loop()` helper.
 3. **Stack discipline.**
    - `sp` is decremented at function entry by a compile-time constant
      ≤ profile-max stack size.
@@ -54,7 +54,7 @@ For a program to be accepted:
    types in `a0`–`a5` match. At every kfunc `jalr`, the resolved
    target is in the per-program-type allow list.
 6. **Termination / runtime bound.** Either a static iteration bound is
-   provable, or the program opts into `bpfv_loop()` with an explicit
+   provable, or the program opts into `merlin_loop()` with an explicit
    runtime-checked cap.
 7. **No FP** in the default profile.
 8. **Memory model use.** Atomic instructions act on properly typed
@@ -77,7 +77,7 @@ following domains:
 
 State merge is by widening at loop headers, then re-walking until
 fixpoint or step-cap exhaustion. The step cap is configurable per
-profile; on `bpfv-rtos-rv32` it is sharply tighter to keep
+profile; on `merlin-rtos-rv32` it is sharply tighter to keep
 verification feasible on the loader CPU.
 
 ## 4. Sharing with the eBPF verifier (decided)
@@ -91,30 +91,30 @@ The two verifiers want the same *abstract domain*
 
 - **Option A — extract a shared `lib/bpf_absint/` module** from
   `kernel/bpf/verifier.c`, parameterise the per-insn transfer
-  functions. eBPF and BPF-V each plug in their decoder + transfer
+  functions. eBPF and MERLIN-V each plug in their decoder + transfer
   function table.
 - **Option B — independent verifier.** Standalone
-  `kernel/bpfv/verifier.c` that duplicates the abstract-domain
+  `kernel/merlin/verifier.c` that duplicates the abstract-domain
   machinery.
 
-The BPF-V RFC v1 patchset lands as **Option B**. The patchset is
-*self-contained*: it adds `kernel/bpfv/` and does not modify
+The MERLIN-V RFC v1 patchset lands as **Option B**. The patchset is
+*self-contained*: it adds `kernel/merlin/` and does not modify
 `kernel/bpf/`. Rationale:
 
 - Lowest possible review surface. eBPF maintainers can review the
-  BPF-V verifier as new code without auditing changes to an
+  MERLIN-V verifier as new code without auditing changes to an
   existing, security-critical file they already maintain.
 - Fastest time-to-merge. Option A requires refactoring
-  `kernel/bpf/verifier.c` *before* BPF-V can land; that refactor
+  `kernel/bpf/verifier.c` *before* MERLIN-V can land; that refactor
   is its own multi-cycle effort.
 - Lowest risk. A refactor of the eBPF verifier could regress eBPF
-  behaviour; keeping BPF-V parallel decouples the two risk
+  behaviour; keeping MERLIN-V parallel decouples the two risk
   surfaces.
 
 The duplication cost is real but bounded — abstract-domain code
 is hundreds of lines, not thousands.
 
-**Commitment for v1.** The BPF-V verifier's data structures are
+**Commitment for v1.** The MERLIN-V verifier's data structures are
 designed *as if* they will be factored later: same abstract
 domain (tnum + range + pointer provenance + liveness), same
 widening discipline, same naming where possible. The eventual
@@ -124,20 +124,20 @@ one. The RFC cover letter says this explicitly.
 **Option A as a follow-up.** Once both verifiers are in the tree
 and have shipped, a separate, opt-in patchset can extract the
 shared abstract-domain module. That patchset is reviewed by both
-BPF and BPF-V maintainers jointly. It is *not* a precondition for
+BPF and MERLIN-V maintainers jointly. It is *not* a precondition for
 either verifier landing.
 
 ## 5. Decoder
 
 The verifier decodes RISC-V instructions itself rather than calling
-out to a disassembler. The decoder lives in `kernel/bpfv/decode.c`
+out to a disassembler. The decoder lives in `kernel/merlin/decode.c`
 and is generated from a machine-readable opcode table (likely
 `riscv-opcodes` upstream, post-processed). The decoder produces a
 small structured representation:
 
 ```c
-struct bpfv_insn {
-    enum bpfv_op   op;       // ADD, ADDI, LD, JAL, JALR, ECALL, ...
+struct merlin_insn {
+    enum merlin_op   op;       // ADD, ADDI, LD, JAL, JALR, ECALL, ...
     u8             rd, rs1, rs2;
     s32            imm;
     u32            raw;      // original bytes (for cache/dump)
@@ -160,7 +160,7 @@ abstract interpreter sees a uniform 32-bit-ish stream.
 ## 7. Execution-context profiles ("can we run real apps?")
 
 A repeated design-review question is whether, given an unrestricted C
-dialect, a BPF-V program could be an arbitrary application running
+dialect, a MERLIN-V program could be an arbitrary application running
 inside the kernel JIT VM. The architectural answer is recorded in
 [`00-overview.md`](00-overview.md) §7; this section is the
 *verifier-engineering* counterpart and defines how the verifier
@@ -183,12 +183,12 @@ The verifier is not one fixed checker. It is parameterised by an
 - The widening discipline at loop headers and the maximum loop
   unroll factor.
 
-A program declares its profile in `.bpfv.meta` (see
+A program declares its profile in `.merlin.meta` (see
 [02-isa-and-bytecode.md](02-isa-and-bytecode.md) §8). The loader
 selects the verifier profile to run accordingly, capability-gated by
 profile (different profiles may require different capabilities, e.g.
-`CAP_BPFV` for default in-kernel; `CAP_BPFV_OFFLOAD` for offload to a
-trusted device; `CAP_BPFV_RTOS` for embedded; etc.). Default-deny
+`CAP_MERLIN` for default in-kernel; `CAP_MERLIN_OFFLOAD` for offload to a
+trusted device; `CAP_MERLIN_RTOS` for embedded; etc.). Default-deny
 applies: an unknown profile is rejected.
 
 ### 7.2 Initial profile catalogue
@@ -202,18 +202,18 @@ to be refined by measurement during prototyping.
 
 | Verifier profile | Bytecode profile | Where it runs | Step cap | Max text | Stack | Sleepable | Recursion | RVV | Helpers |
 | ---------------- | ---------------- | ------------- | -------- | -------- | ----- | --------- | --------- | --- | ------- |
-| `linux-rv64/default`   | `bpfv-linux-rv64` | Linux atomic hooks (XDP-V, TC-V, kprobe-V, …)                  | 1 M | 1 MB | 8 KB  | no  | bounded ≤ 8  | no  | small, eBPF-shaped |
-| `linux-rv64/sleepable` | `bpfv-linux-rv64` | Linux sleepable hooks (LSM-V, fentry-V on sleepable funcs, …) | 4 M | 4 MB | 64 KB | yes | bounded ≤ 32 | no  | broader, includes mem-alloc helper |
-| `linux-rv64/largemem`  | `bpfv-linux-rv64` | Linux long-running data-plane programs with `bpf_arena_v`     | 8 M | 4 MB | 64 KB | yes | bounded ≤ 32 | optional | above + arena ops |
-| `offload/nic-firmware` | `bpfv-linux-rv64` *or* `bpfv-rtos-rv32` (vendor-selected) | RISC-V SmartNIC / DPU / accelerator firmware | per-vendor | per-vendor | per-vendor | yes | bounded ≤ 64 | yes (if device has it) | vendor-defined, large |
-| `rtos-rv32/zephyr`     | `bpfv-rtos-rv32` | Zephyr on RISC-V MCU (ESP32-C3, MPFS E51, FPGA soft cores)    | 8 K | 64 KB | 4 KB  | yes (cooperative) | bounded ≤ 16 | no (initially) | RTOS-shaped (timers, GPIO, logging) |
+| `linux-rv64/default`   | `merlin-linux-rv64` | Linux atomic hooks (XDP-V, TC-V, kprobe-V, …)                  | 1 M | 1 MB | 8 KB  | no  | bounded ≤ 8  | no  | small, eBPF-shaped |
+| `linux-rv64/sleepable` | `merlin-linux-rv64` | Linux sleepable hooks (LSM-V, fentry-V on sleepable funcs, …) | 4 M | 4 MB | 64 KB | yes | bounded ≤ 32 | no  | broader, includes mem-alloc helper |
+| `linux-rv64/largemem`  | `merlin-linux-rv64` | Linux long-running data-plane programs with `bpf_arena_v`     | 8 M | 4 MB | 64 KB | yes | bounded ≤ 32 | optional | above + arena ops |
+| `offload/nic-firmware` | `merlin-linux-rv64` *or* `merlin-rtos-rv32` (vendor-selected) | RISC-V SmartNIC / DPU / accelerator firmware | per-vendor | per-vendor | per-vendor | yes | bounded ≤ 64 | yes (if device has it) | vendor-defined, large |
+| `rtos-rv32/zephyr`     | `merlin-rtos-rv32` | Zephyr on RISC-V MCU (ESP32-C3, MPFS E51, FPGA soft cores)    | 8 K | 64 KB | 4 KB  | yes (cooperative) | bounded ≤ 16 | no (initially) | RTOS-shaped (timers, GPIO, logging) |
 | `user-mode/sandbox` *(future)* | either | User-space sandbox process                                          | 8 M | 8 MB | 256 KB | yes | bounded ≤ 64 | yes | very broad, syscall-shaped |
 
 The bytecode profile constrains the *march* the loader will
 accept; the verifier profile constrains the *behaviour* the
 verifier will tolerate. They compose: a `linux-rv64/sleepable`
 verifier profile only accepts programs that declared the
-`bpfv-linux-rv64` bytecode profile *and* whose declared hook
+`merlin-linux-rv64` bytecode profile *and* whose declared hook
 permits sleepable behaviour.
 
 Two design rules:
@@ -265,7 +265,7 @@ A profile **must not**:
 
 ### 7.5 Profile negotiation at load
 
-The loader (`BPFV_PROG_LOAD`) checks:
+The loader (`MERLIN_PROG_LOAD`) checks:
 
 1. The requested profile is implemented and enabled on this host.
 2. The caller holds the capability associated with that profile.
@@ -282,7 +282,7 @@ Mismatch on any of these fails the load with a clear error.
 To support this, the verifier is structured as:
 
 ```
-struct bpfv_profile {
+struct merlin_profile {
     const char           *name;
     u32                   step_cap;
     u32                   max_text;
@@ -292,9 +292,9 @@ struct bpfv_profile {
     bool                  rvv_allowed;
     bool                  fp_allowed;
     bool                  amo_allowed;
-    const struct bpfv_helper_set  *helpers;
-    const struct bpfv_isa_subset  *isa;
-    const struct bpfv_widening    *widening;
+    const struct merlin_helper_set  *helpers;
+    const struct merlin_isa_subset  *isa;
+    const struct merlin_widening    *widening;
 };
 ```
 
@@ -314,7 +314,7 @@ default profile is implemented:
 - **Phase 2:** add `linux-rv64/sleepable`, `rtos-rv32/zephyr`.
 - **Phase 3:** `offload/nic-firmware` (requires the device control
   protocol from [07-jit-and-offload.md](07-jit-and-offload.md) §5).
-- **Phase 4:** `linux-rv64/largemem` (depends on a BPF-V arena
+- **Phase 4:** `linux-rv64/largemem` (depends on a MERLIN-V arena
   facility; coordinate with eBPF `bpf_arena` work).
 - **Phase 5 (research):** `user-mode/sandbox`.
 
@@ -327,16 +327,16 @@ space.
 - Decide whether to verify before or after linker relaxation (some
   RISC-V toolchains relax sequences in-place; verifier must either
   understand both forms or require `-mno-relax`).
-- Decide the `bpfv_loop()` helper signature (or replace with a
+- Decide the `merlin_loop()` helper signature (or replace with a
   registered kfunc, leaning that way given the helper-ABI
   decision in [02-isa-and-bytecode.md](02-isa-and-bytecode.md) §6).
 - Decide the policy for `A`-extension atomics in shared memory: allow
   any typed-pointer atomic, or require a helper for cross-CPU
-  ordering critical sections. `A` is mandatory in `bpfv-linux-rv64`
+  ordering critical sections. `A` is mandatory in `merlin-linux-rv64`
   but the verifier policy for raw AMOs is a separate question.
 - Assign capability names to each non-default verifier profile
-  (`CAP_BPFV` for default; `CAP_BPFV_OFFLOAD` for offload;
-  `CAP_BPFV_RTOS` for embedded; etc.). UAPI-impacting; coordinate
+  (`CAP_MERLIN` for default; `CAP_MERLIN_OFFLOAD` for offload;
+  `CAP_MERLIN_RTOS` for embedded; etc.). UAPI-impacting; coordinate
   with [03-kernel-interfaces.md](03-kernel-interfaces.md).
 - Decide whether a profile's helper set is part of the kernel ABI
   (UAPI-stable) or per-program-type (looser).

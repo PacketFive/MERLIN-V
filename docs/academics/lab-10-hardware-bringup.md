@@ -19,7 +19,7 @@ Design doc: [`docs/design/05-reference-platforms.md`](../design/05-reference-pla
 - Move a Zephyr application unchanged from QEMU to silicon.
 - Flash and bring up a board with no prior experience.
 - Diagnose a real-hardware bug that does not reproduce in QEMU.
-- Quantify the runtime overhead of the BPF-V stack on a constrained
+- Quantify the runtime overhead of the MERLIN-V stack on a constrained
   MCU.
 
 ## Background reading
@@ -69,9 +69,9 @@ Zephyr shell over UART.
 
 ### Task 3 — Run prior labs' samples
 
-Run `samples/blinky.bpfv.o` (Path A: blink the onboard LED via
-`gpio_pin_toggle_dt`; Path B: drive a header pin) using `bpfvi load`
-and `bpfvi run`.
+Run `samples/blinky.merlin.o` (Path A: blink the onboard LED via
+`gpio_pin_toggle_dt`; Path B: drive a header pin) using `merlin load`
+and `merlin run`.
 
 ### Task 4 — Hardware-only bug hunt
 
@@ -105,8 +105,8 @@ Plot the result in a small table or chart in `WRITEUP.md`.
 
 Report:
 
-- Flash size of the Zephyr image with BPF-V runtime.
-- Flash size of the same image *without* BPF-V (CMake option
+- Flash size of the Zephyr image with MERLIN-V runtime.
+- Flash size of the same image *without* MERLIN-V (CMake option
   provided in the skeleton).
 - RAM high-water from `west build -t rom_report` and
   `west build -t ram_report`.
@@ -146,5 +146,5 @@ hardware was demonstrably unavailable.)
 ## What's next
 
 Lab 11 closes the loop: a small XDP-V-style demonstrator running the
-whole BPF-V stack you've built, with a measurement-driven writeup
+whole MERLIN-V stack you've built, with a measurement-driven writeup
 that resembles a workshop paper section.

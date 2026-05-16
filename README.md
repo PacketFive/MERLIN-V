@@ -1,10 +1,10 @@
-# BPF-V
+# MERLIN-V
 
-**BPF-V — a clean-room, in-kernel JIT VM whose bytecode is the RISC-V ISA.**
+**MERLIN-V — a clean-room, in-kernel JIT VM whose bytecode is the RISC-V ISA.**
 
-BPF-V is a from-scratch design of an in-kernel JIT virtual machine
+MERLIN-V is a from-scratch design of an in-kernel JIT virtual machine
 analogous to eBPF but with one decisive change: instead of a custom
-64-bit RISC-like bytecode, **BPF-V programs are encoded in a restricted
+64-bit RISC-like bytecode, **MERLIN-V programs are encoded in a restricted
 profile of the RISC-V ISA (RV32 and RV64)**. A JIT step exists in both
 projects; what differs is whether that step has to *translate*:
 
@@ -24,7 +24,7 @@ projects; what differs is whether that step has to *translate*:
 
 **Maintainer:** PacketFive.
 **License:** GPL-2.0-only (in-kernel); dual GPL-2.0 / BSD-2-Clause for
-UAPI headers and user-space libraries (`libbpfv`).
+UAPI headers and user-space libraries (`libmerlin`).
 
 ## Repository layout
 
@@ -32,7 +32,7 @@ UAPI headers and user-space libraries (`libbpfv`).
 .
 ├── docs/
 │   ├── AI/                # AI agent contribution policy (Linux Kernel AI Policy)
-│   ├── design/            # BPF-V design documents (RFC + paper source material)
+│   ├── design/            # MERLIN-V design documents (RFC + paper source material)
 │   └── academics/         # Advanced-OS-design training course (12 labs + syllabus)
 ├── net-next/              # submodule: cutting-edge Linux networking tree (reference only)
 ├── bpf-next/              # submodule: BPF subsystem tree (reference only; eBPF/XDP/AF_XDP/…)
@@ -42,7 +42,7 @@ UAPI headers and user-space libraries (`libbpfv`).
 
 The two kernel submodules are **read-only references**; we track them
 to stay current with upstream networking and BPF development. All
-BPF-V design and source contributions live under this repository's own
+MERLIN-V design and source contributions live under this repository's own
 directories.
 
 ## Start here
@@ -52,19 +52,19 @@ directories.
 - [`docs/design/00-overview.md`](docs/design/00-overview.md) — vision,
   goals/non-goals, glossary.
 - [`docs/design/01-ebpf-comparative-analysis.md`](docs/design/01-ebpf-comparative-analysis.md) —
-  what eBPF is, and where BPF-V diverges.
+  what eBPF is, and where MERLIN-V diverges.
 - [`docs/academics/README.md`](docs/academics/README.md) — the
-  advanced-OS-design course built on top of BPF-V (twelve labs,
+  advanced-OS-design course built on top of MERLIN-V (twelve labs,
   setup → eBPF dissection → user-space stack → kernel module →
   Zephyr / hardware → capstone).
-- **Companion book:** *The BPF-V Book — From a Multiplexer to an
+- **Companion book:** *The MERLIN-V Book — From a Multiplexer to an
   In-Kernel JIT VM on RISC-V Hardware You Built.* Four-part book
   (digital design + ISA + RISC-V CPU on FPGA → custom hardware +
-  Linux drivers → eBPF → BPF-V), purpose-built for the BPF-V
+  Linux drivers → eBPF → MERLIN-V), purpose-built for the MERLIN-V
   academics course's prerequisite reading and beyond. Lives in its
   own repository at
   [`PacketFive/eBPF-book`](https://github.com/PacketFive/eBPF-book)
-  *(repo rename to `packetfive-bpfv-book` planned)*. Book content
+  *(repo rename to `packetfive-merlin-book` planned)*. Book content
   CC-BY-SA-4.0; lab code GPL-2.0-only.
 - [`docs/AI/AGENT_INSTRUCTIONS.md`](docs/AI/AGENT_INSTRUCTIONS.md) —
   rules for AI-assisted contributions (follows the Linux Kernel AI

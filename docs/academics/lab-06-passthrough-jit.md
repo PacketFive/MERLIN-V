@@ -29,9 +29,9 @@ Design doc: [`docs/design/07-jit-and-offload.md`](../design/07-jit-and-offload.m
 
 ## Specification
 
-You will build `bpfvi-jit`, a tool that:
+You will build `merlin-jit`, a tool that:
 
-1. Loads a validated BPF-V ELF (output of Lab 05's `prog validate`).
+1. Loads a validated MERLIN-V ELF (output of Lab 05's `prog validate`).
 2. Verifies it (Lab 04's verifier).
 3. Allocates an RX page region.
 4. Copies `.text` in.
@@ -60,20 +60,20 @@ any `mmap`/`mprotect` call that would result in `W|X` simultaneously.
 
 ### Relocations implemented in this lab
 
-- `R_BPFV_HELPER_ID` — patch the I-immediate of `li a7, ?` (the
+- `R_MERLIN_HELPER_ID` — patch the I-immediate of `li a7, ?` (the
   helper id is a compile-time-resolved value).
 - `R_RISCV_PCREL_HI20` / `R_RISCV_PCREL_LO12_I` /
   `R_RISCV_PCREL_LO12_S` — standard RISC-V PC-relative pairs, in case
   the program references its own data section.
 
-`R_BPFV_KFUNC_SLOT`, `R_BPFV_MAP_FD`, and `R_BPFV_CORE_FIELD` are
+`R_MERLIN_KFUNC_SLOT`, `R_MERLIN_MAP_FD`, and `R_MERLIN_CORE_FIELD` are
 stubbed out in this lab (they'll come back in Lab 08).
 
 ## Tasks
 
 ### Task 1 — Allocator
 
-Implement `bpfvi_text_alloc(size, **rx_out, **rw_out)` returning two
+Implement `merlin_text_alloc(size, **rx_out, **rw_out)` returning two
 aliasing views of the same physical pages — one RW, one RX — by
 allocating two `mmap`s on a shared `memfd_create(2)` region.
 
@@ -93,9 +93,9 @@ reloc by its `r_addend` referring back to the `HI20` site.
 Implement `src/run.c`:
 
 ```c
-typedef int32_t (*bpfvi_entry_fn)(void *ctx);
+typedef int32_t (*merlin_entry_fn)(void *ctx);
 
-int bpfvi_run_jit(const char *elf_path, void *ctx, int32_t *ret_out);
+int merlin_run_jit(const char *elf_path, void *ctx, int32_t *ret_out);
 ```
 
 ### Task 4 — Benchmark
@@ -150,5 +150,5 @@ The autograder runs your tool on:
 
 ## What's next
 
-Lab 07 reverses the polarity: you run BPF-V on a non-RISC-V host by
+Lab 07 reverses the polarity: you run MERLIN-V on a non-RISC-V host by
 translating RISC-V to x86\_64 in a small, single-pass JIT.

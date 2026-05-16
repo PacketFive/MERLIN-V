@@ -1,6 +1,6 @@
-# AI Agent Instructions for BPF-V
+# AI Agent Instructions for MERLIN-V
 
-> **Project:** BPF-V — BPF RISC-V ISA Bytecode JIT VM
+> **Project:** MERLIN-V — BPF RISC-V ISA Bytecode JIT VM
 > **Upstream tracked:** `net-next` (Linux kernel netdev tree, submodule)
 > **Governing policy:** [Linux Kernel AI Policy](https://docs.kernel.org/process/coding-assistants.html)
 

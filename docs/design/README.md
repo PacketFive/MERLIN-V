@@ -1,6 +1,6 @@
-# BPF-V Design Documentation
+# MERLIN-V Design Documentation
 
-> **Project:** BPF-V — a clean-room, in-kernel JIT VM whose bytecode IS
+> **Project:** MERLIN-V — a clean-room, in-kernel JIT VM whose bytecode IS
 > the RISC-V ISA (RV32 + RV64), designed for 1:1 hardware offload to
 > RISC-V CPUs, MCUs, and RISC-V-based PCIe / CXL / UALink accelerators
 > and SmartNICs.
@@ -9,10 +9,10 @@
 > **License:** GPL-2.0-only (kernel components), dual GPL-2.0 / BSD-2-Clause
 > where appropriate (UAPI headers, user-space libraries) — TBD per file.
 
-This directory holds the *design record* for BPF-V. Documents here are
+This directory holds the *design record* for MERLIN-V. Documents here are
 the source material for:
 
-- Conference / journal papers proposing BPF-V.
+- Conference / journal papers proposing MERLIN-V.
 - An RFC patch series to LKML (`bpf`, `netdev`, `linux-riscv`).
 - Reference-platform bring-up notes (Microchip PolarFire SoC Icicle Kit,
   ESP32-C3-DevKitM-1, Zephyr RTOS).
@@ -22,10 +22,10 @@ the source material for:
 | # | Document | Status |
 | - | -------- | ------ |
 | 00 | [`00-overview.md`](00-overview.md) — vision, goals, non-goals, glossary | starter |
-| 01 | [`01-ebpf-comparative-analysis.md`](01-ebpf-comparative-analysis.md) — eBPF anatomy and where BPF-V diverges | starter |
-| 02 | [`02-isa-and-bytecode.md`](02-isa-and-bytecode.md) — the BPF-V ISA profile on top of RV32/RV64 | starter |
+| 01 | [`01-ebpf-comparative-analysis.md`](01-ebpf-comparative-analysis.md) — eBPF anatomy and where MERLIN-V diverges | starter |
+| 02 | [`02-isa-and-bytecode.md`](02-isa-and-bytecode.md) — the MERLIN-V ISA profile on top of RV32/RV64 | starter |
 | 03 | [`03-kernel-interfaces.md`](03-kernel-interfaces.md) — uapi, syscall surface, loader, maps | starter |
-| 04 | [`04-toolchain.md`](04-toolchain.md) — GCC vs LLVM, libbpfv, BTF-V, CO-RE-V | starter |
+| 04 | [`04-toolchain.md`](04-toolchain.md) — GCC vs LLVM, libmerlin, MERLIN BTF, CO-RE-V | starter |
 | 05 | [`05-reference-platforms.md`](05-reference-platforms.md) — Icicle Kit, ESP32-C3, Zephyr | starter |
 | 06 | [`06-verifier.md`](06-verifier.md) — verifier strategy on a permissive ISA | starter |
 | 07 | [`07-jit-and-offload.md`](07-jit-and-offload.md) — host JIT, NIC/accel offload | starter |

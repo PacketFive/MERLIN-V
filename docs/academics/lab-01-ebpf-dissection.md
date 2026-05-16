@@ -17,7 +17,7 @@ After this lab you will be able to:
   rejected.
 - Read JIT'd output for the host architecture and the eBPF bytecode
   for the program.
-- Articulate, with concrete references, what BPF-V proposes to change.
+- Articulate, with concrete references, what MERLIN-V proposes to change.
 
 ## Background reading
 
@@ -153,9 +153,9 @@ loader; you fill in the map lookup and the SEC("xdp") body.
 In `WRITEUP.md`, answer:
 
 1. Which parts of this lab were *eBPF-specific work* that would
-   disappear under BPF-V's "the bytecode is RISC-V" approach? Be
+   disappear under MERLIN-V's "the bytecode is RISC-V" approach? Be
    specific: name files, tools, or steps.
-2. Which parts would still be necessary under BPF-V? Why?
+2. Which parts would still be necessary under MERLIN-V? Why?
 3. Where in the verifier log is the *abstract domain* visible? Cite a
    line number from `bpf-next/kernel/bpf/verifier.c`.
 
