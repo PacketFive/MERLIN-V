@@ -5,15 +5,20 @@
 BPF-V is a from-scratch design of an in-kernel JIT virtual machine
 analogous to eBPF but with one decisive change: instead of a custom
 64-bit RISC-like bytecode, **BPF-V programs are encoded in a restricted
-profile of the RISC-V ISA (RV32 and RV64)**. The same verified image
-runs:
+profile of the RISC-V ISA (RV32 and RV64)**. A JIT step exists in both
+projects; what differs is whether that step has to *translate*:
 
-- On RISC-V Linux hosts — via a *pass-through JIT* (no instruction
-  translation).
-- On non-RISC-V hosts (x86\_64, arm64, …) — via a small host JIT that
-  translates RISC-V to the host ISA.
-- On RISC-V SmartNICs and PCIe / CXL / UALink accelerators with RISC-V
-  cores — by direct load, 1:1, no re-translation.
+- On RISC-V Linux hosts — *pass-through JIT*: verify, relocate, flush
+  I-cache, jump. The bytecode already *is* the host's native ISA, so
+  there is no instruction translation. eBPF, by contrast, must
+  translate even on RISC-V hosts because no commodity CPU implements
+  its bytecode in silicon.
+- On non-RISC-V hosts (x86\_64, arm64, …) — a real translating JIT,
+  structurally similar to the existing per-architecture eBPF JITs in
+  `arch/$ARCH/net/bpf_jit_*.c`, but consuming stock RISC-V machine
+  code instead of a bespoke bytecode.
+- On RISC-V SmartNICs and PCIe / CXL / UALink accelerators with
+  RISC-V cores — direct install, 1:1, no re-translation.
 - On microcontrollers (ESP32-C3, MPFS Icicle E51 core) under
   Zephyr RTOS, sharing the same toolchain and object format.
 
