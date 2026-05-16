@@ -28,68 +28,48 @@ bpfv-objtool elf info <file>
 bpfv-objtool reloc list <file>
 ```
 
-### `.bpfv.meta` (binary layout — pin to this exactly)
+### Binary format — the canonical spec
 
-```c
-struct bpfv_meta_v1 {
-    uint32_t magic;           // 'B','P','F','V' == 0x56465042
-    uint32_t version;         // 1
-    uint32_t profile;         // BPFV_PROFILE_*
-    uint32_t prog_type;       // BPFV_PROG_TYPE_*
-    uint32_t expected_attach_type;
-    uint32_t btf_offset;      // file offset of .BTF.v
-    uint32_t btf_size;
-    uint32_t maps_offset;
-    uint32_t maps_size;
-    uint32_t relocs_offset;
-    uint32_t relocs_size;
-    char     name[32];        // NUL-terminated
-    char     license[64];     // NUL-terminated
-};
-```
+The on-disk binary format (`.bpfv.meta`, `.bpfv.license`,
+`.bpfv.maps`, `.bpfv.relocs`, `.BTF.v`) is specified in
+[`docs/design/02-isa-and-bytecode.md`](../design/02-isa-and-bytecode.md)
+§8. **That section is authoritative.** This lab implements
+exactly what §8 specifies; if §8 changes, this lab is updated to
+match (or vice versa, with the lab's author proposing the change
+to §8 first).
 
-### `.bpfv.maps`
+Key structures the lab handles:
 
-A packed array of:
+- `struct bpfv_meta_v1`   — see §8.3 (80-byte fixed header).
+- `struct bpfv_map_desc_v1` — see §8.5 (80 bytes per record).
+- `struct bpfv_reloc_v1` — see §8.6 (24 bytes per record).
+- `.bpfv.license` — NUL-terminated SPDX string (see §8.4).
+- `.BTF.v` — BTF-V (see [04-toolchain.md](../design/04-toolchain.md) §3).
 
-```c
-struct bpfv_map_desc_v1 {
-    char     name[32];
-    uint32_t type;       // BPFV_MAP_TYPE_*
-    uint32_t key_size;
-    uint32_t value_size;
-    uint32_t max_entries;
-    uint32_t flags;
-};
-```
+The lab uses the **ELF symbol table** (`.symtab`/`.strtab`) for
+naming, exactly as the spec requires (§8.6). There is no
+"lab-private symbol table"; an earlier draft of this lab had one
+and that draft was wrong. The autograder and the spec are now
+aligned.
 
-### `.bpfv.relocs`
+### `R_BPFV_*` types this lab handles
 
-A packed array of:
+From §8.6.1 of the spec:
 
-```c
-struct bpfv_reloc_v1 {
-    uint32_t r_offset;   // offset into .text
-    uint32_t r_type;     // R_BPFV_*
-    uint32_t r_sym;      // index into a symbol table (see below)
-    int32_t  r_addend;
-};
-```
+| Name                  | Value | Lab behaviour                                              |
+| --------------------- | ----- | ---------------------------------------------------------- |
+| `R_BPFV_NONE`         | 0     | accepted; no-op                                            |
+| `R_BPFV_HELPER_ID`    | 1     | resolves a helper id from `.symtab` by name; validates the helper is in the program type's allow list (`tools/bpfv-objtool/data/prog_types.json`) |
+| `R_BPFV_KFUNC_SLOT`   | 2     | resolves a kfunc slot index; validates the kfunc name      |
+| `R_BPFV_MAP_FD`       | 3     | validates that `r_sym` is a valid index into `.bpfv.maps`  |
+| `R_BPFV_MAP_VALUE`    | 4     | as above, plus checks `r_addend` is within value bounds    |
+| `R_BPFV_CORE_FIELD`   | 5     | validates `r_extra0` is one of the access kinds (§8.6.2)   |
+| `R_BPFV_CORE_SIZE`    | 6     | validates target BTF type                                  |
+| `R_BPFV_CORE_ENUMVAL` | 7     | validates target BTF enum                                  |
+| `R_BPFV_PROG_ENTRY`   | 8     | validates target program name exists in `.symtab`          |
 
-Symbol table is the lab's own little thing: a packed string table
-inside `.bpfv.symtab` plus a parallel array of `(string_offset,
-target_section)` records. We deliberately use this rather than
-inflating the ELF symbol table so students focus on the BPF-V format
-without ELF-namespace battles.
-
-`R_BPFV_*` types this lab cares about:
-
-| Name | Meaning |
-| ---- | ------- |
-| `R_BPFV_HELPER_ID` | Patch the 12-bit immediate of `li a7, ?` |
-| `R_BPFV_KFUNC_SLOT` | Patch a `ld` immediate addressing a kfunc table slot |
-| `R_BPFV_MAP_FD` | Patch a 32-bit immediate sequence with a map identity |
-| `R_BPFV_CORE_FIELD` | Patch a 12-bit immediate with a CO-RE-V offset |
+Any other `r_type` value: validate rejects, per the spec's
+default-deny rule (§8.6.1).
 
 ### Required validations (`prog validate`)
 
@@ -142,19 +122,24 @@ matching error code.
 ### Task 5 — `reloc list`
 
 A focused subcommand that prints just the reloc table, one per line,
-plus the symbolic name resolved against `.bpfv.symtab`.
+plus the symbolic name resolved against the ELF `.symtab` (or the
+map name from `.bpfv.maps` when `r_type` is `R_BPFV_MAP_FD` /
+`R_BPFV_MAP_VALUE`).
 
 ## Deliverables
 
 - `tools/bpfv-objtool/` source.
 - A passing autograder log.
 - `WRITEUP.md` covering:
-  - Why is the BPF-V symbol table *separate* from the ELF symbol
-    table in this lab's design?
+  - Why does the BPF-V format reuse the **ELF `.symtab`** for
+    helper and kfunc naming rather than carrying its own
+    `.bpfv.symtab`? (Hint: read §8.6 of the design doc — what
+    do `r_sym` values point at?)
   - One real-world ELF gotcha you ran into (e.g., section header
-    string table missing, `sh_link` wrong, big-endian surprise).
-  - How would `R_BPFV_CORE_FIELD` resolution differ in-kernel from in
-    this tool?
+    string table missing, `sh_link` wrong, an endianness surprise
+    on a big-endian build host).
+  - How would `R_BPFV_CORE_FIELD` resolution differ in-kernel
+    from in this tool?
 
 ## Rubric
 
@@ -170,12 +155,17 @@ plus the symbolic name resolved against `.bpfv.symtab`.
 
 ## Common pitfalls
 
-- Forgetting that `.bpfv.*` are SHT\_PROGBITS with custom flags. The
-  ELF spec is fine with this; some readers complain.
-- Confusing file offsets with section offsets. `.bpfv.meta`'s
-  `btf_offset` is *file* offset.
-- Treating `r_offset` as a virtual address instead of an offset into
-  `.text`.
+- Forgetting that `.bpfv.*` sections are `SHT_PROGBITS`
+  identified by section name, not by a custom `SHT_*` type. The
+  ELF spec is fine with this; some tools complain.
+- Forgetting the endianness rule: `.bpfv.*` are always little-endian
+  even when the build host is big-endian
+  (see [design 02 §8.2](../design/02-isa-and-bytecode.md#82-endianness-and-alignment)).
+- Treating `r_offset` as a virtual address instead of a byte
+  offset into `.text`.
+- Reading `bpfv_meta_v1` as a fixed-size struct rather than as
+  the first `min(meta_size, sizeof your struct)` bytes — the
+  forward-compatibility rule in §8.3.1.
 
 ## What's next
 

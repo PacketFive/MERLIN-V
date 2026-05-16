@@ -1,8 +1,8 @@
 # 02 — BPF-V ISA and Bytecode
 
-Status: profile pinned; helper ABI pinned
+Status: profile pinned; helper ABI pinned; ELF format pinned
 Owner: PacketFive
-Last reviewed: profile and helper-ABI decisions landed
+Last reviewed: ELF format spec landed
 
 This document defines the BPF-V *bytecode* — which is to say, the
 profile of the RISC-V ISA that a BPF-V program is permitted to use, and
@@ -237,21 +237,347 @@ value, ringbuf slot, etc.).
 
 ## 8. Object file format
 
-A BPF-V object is a plain RISC-V ELF (`EM_RISCV`) with these
-additions:
+This section is the wire-format specification for BPF-V program
+objects. A loader that conforms to this section can ingest any
+program produced by a conforming toolchain, and vice versa.
 
-- `.bpfv.meta` — fixed-layout header: profile name, program type,
-  required maps, kfuncs, license string, BTF-V offset.
-- `.BTF.v` — BTF-V type info (see [04-toolchain.md](04-toolchain.md)).
-- `.bpfv.maps` — map descriptor records (name, type, key/value
-  size/types, max\_entries, flags).
-- `.bpfv.relocs` — BPF-V-specific reloc kinds (helper id binding,
-  kfunc binding, CO-RE-V field offset, map fd patch site).
-- Standard RISC-V relocs (`R_RISCV_*`) are honoured by the loader for
-  PC-relative addressing within the program.
+### 8.1 Overview
 
-A small ELF tool, `bpfv-objtool`, validates these sections before
-upload. See [04-toolchain.md](04-toolchain.md).
+A BPF-V object is a standard RISC-V ELF (`EM_RISCV`,
+`ELFCLASS32`/`ELFCLASS64` matching the bytecode profile,
+`ELFDATA2LSB` always) with these additional named sections:
+
+| Section name      | SHT type      | Purpose                                          |
+| ----------------- | ------------- | ------------------------------------------------ |
+| `.bpfv.meta`      | `SHT_PROGBITS`| Fixed-layout header describing the program       |
+| `.bpfv.maps`      | `SHT_PROGBITS`| Packed array of map descriptors                  |
+| `.bpfv.relocs`    | `SHT_PROGBITS`| Packed array of BPF-V-specific reloc records     |
+| `.bpfv.license`   | `SHT_PROGBITS`| NUL-terminated SPDX license identifier           |
+| `.BTF.v`          | `SHT_PROGBITS`| BTF-V type information (see [04-toolchain.md](04-toolchain.md)) |
+
+Plus standard ELF sections used as expected:
+
+- `.text` — the verified RISC-V code.
+- `.rodata` — read-only constants. Loader copies into the program's
+  R-mapped data region.
+- `.symtab`, `.strtab` — standard ELF symbol/string tables. Symbols
+  named here are referenced by `.bpfv.relocs` records.
+- `.rela.text` — standard `SHT_RELA` with `R_RISCV_*` relocs for
+  internal PC-relative pairs, `JAL`, etc. The loader processes
+  these first, then `.bpfv.relocs`.
+
+The following sections, if present, cause the loader to **reject**
+the object:
+
+- `.data`, `.bss` — programs have no mutable globals; all state
+  lives in maps.
+- `.tdata`, `.tbss` — no TLS.
+- `.dynamic`, `.interp`, `.got`, `.plt` — programs are
+  self-contained; no dynamic linking.
+
+Sections not listed above are ignored.
+
+### 8.2 Endianness and alignment
+
+All multi-byte fields in `.bpfv.*` sections are **little-endian**,
+regardless of host endianness. This applies even when the object
+is generated on a big-endian build host: RISC-V is canonically
+little-endian, BPF-V images are RISC-V machine code, and the
+metadata that describes them follows the same convention.
+
+All structs defined in this section are **naturally aligned**.
+All sizes and counts are 32-bit. Strings are fixed-length,
+NUL-padded.
+
+### 8.3 `.bpfv.meta`
+
+```c
+#define BPFV_META_MAGIC    0x56465042u   /* 'BPFV' little-endian (B,P,F,V) */
+#define BPFV_META_VERSION  1u
+
+#define BPFV_NAME_MAX        32
+#define BPFV_TOOLCHAIN_MAX   32
+
+struct bpfv_meta_v1 {
+    /* --- identity --- */
+    uint32_t magic;             /* BPFV_META_MAGIC */
+    uint16_t version_major;     /* 1 for v1; mismatch -> loader rejects */
+    uint16_t version_minor;     /* loaders accept any v1.x */
+    uint32_t meta_size;         /* sizeof(this struct as emitted); enables forward growth */
+    uint32_t flags;             /* BPFV_META_F_* (see below) */
+
+    /* --- profile and program kind --- */
+    uint32_t bytecode_profile;  /* BPFV_PROFILE_LINUX_RV64 | BPFV_PROFILE_RTOS_RV32 */
+    uint32_t prog_type;         /* BPFV_PROG_TYPE_*; see 03-kernel-interfaces.md */
+    uint32_t expected_attach_type;
+    uint32_t reserved0;         /* MBZ; reserved for future verifier_profile_hint */
+
+    /* --- numeric limits the program asks the verifier to apply --- */
+    uint32_t requested_stack;   /* bytes; 0 = profile default */
+    uint32_t requested_steps;   /* verifier step cap; 0 = profile default */
+    uint32_t reserved1[2];      /* MBZ */
+
+    /* --- human-readable identification --- */
+    char     prog_name[BPFV_NAME_MAX];        /* NUL-padded */
+    char     toolchain[BPFV_TOOLCHAIN_MAX];   /* e.g. "gcc 14.2 riscv64-linux-gnu" */
+};
+```
+
+Total: 80 bytes for v1 (8 + 8 + 16 + 16 + 32 = 80; check: 4+2+2 + 4+4 + 4+4+4+4 + 4+4+8 + 32+32 = 80). MBZ = "must be zero" (loader rejects non-zero values in reserved fields, so the field can be repurposed later without ambiguity).
+
+`flags` bits:
+
+```c
+/* Section presence (must match actual section headers) */
+#define BPFV_META_F_HAS_BTF_V    (1u << 0)
+#define BPFV_META_F_HAS_MAPS     (1u << 1)
+#define BPFV_META_F_HAS_RELOCS   (1u << 2)
+
+/* Verifier-profile selection hints (reserved bits 8..15) */
+#define BPFV_META_F_SLEEPABLE    (1u << 8)
+#define BPFV_META_F_LARGEMEM     (1u << 9)
+
+/* Extension-set declarations (reserved bits 16..23) */
+#define BPFV_META_F_NEED_A_EXT   (1u << 16)   /* uses A-ext atomics directly */
+#define BPFV_META_F_NEED_ZBB     (1u << 17)   /* uses Zbb instructions */
+#define BPFV_META_F_NEED_ZBA     (1u << 18)
+#define BPFV_META_F_NEED_ZBS     (1u << 19)
+```
+
+Loaders ignore unknown bits but log a warning. Programs MUST NOT
+rely on unknown bits being honoured.
+
+#### 8.3.1 Forward-compatibility rules for `bpfv_meta_v1`
+
+The `meta_size` field permits growth without breaking older
+loaders:
+
+- A loader reads the first 12 bytes of `.bpfv.meta` to obtain
+  magic + version + meta_size.
+- It validates `magic == BPFV_META_MAGIC` and
+  `version_major == 1`.
+- It reads `min(meta_size, sizeof(its known struct))` bytes into
+  its local copy. Trailing bytes (newer minor versions) are
+  ignored.
+- A toolchain emitting a newer minor version MUST keep all v1.0
+  fields at their original offsets and append new fields.
+
+A future incompatible change requires bumping `version_major`,
+at which point the struct becomes `bpfv_meta_v2`.
+
+### 8.4 `.bpfv.license`
+
+A single NUL-terminated SPDX license identifier string. Examples:
+
+- `"GPL-2.0-only"`
+- `"GPL-2.0-or-later"`
+- `"GPL-2.0-only WITH Linux-syscall-note"`
+- `"Dual GPL-2.0-only OR BSD-2-Clause"`
+
+The loader rejects programs whose license is not GPL-compatible,
+matching the policy in `bpf-next/kernel/bpf/syscall.c`'s
+`license_is_gpl_compatible()`. The legacy short string `"GPL"`
+is accepted for compatibility with existing toolchains but new
+objects should use full SPDX identifiers.
+
+### 8.5 `.bpfv.maps`
+
+A packed array of fixed-layout records. The number of records is
+`section_size / sizeof(struct bpfv_map_desc_v1)`; the section
+size MUST be a multiple of `sizeof(struct bpfv_map_desc_v1)`.
+
+```c
+#define BPFV_MAP_NAME_MAX  32
+
+struct bpfv_map_desc_v1 {
+    char     name[BPFV_MAP_NAME_MAX];   /* NUL-padded; loader-visible identity */
+    uint32_t type;                       /* BPFV_MAP_TYPE_* */
+    uint32_t key_size;                   /* bytes */
+    uint32_t value_size;                 /* bytes */
+    uint32_t max_entries;
+    uint32_t flags;                      /* BPFV_MAP_F_* (parallel to BPF's BPF_F_*) */
+    uint32_t key_btf_id;                 /* index into .BTF.v; 0 = untyped */
+    uint32_t value_btf_id;               /* index into .BTF.v; 0 = untyped */
+    uint32_t inner_map_idx;              /* for map-in-map; 0xFFFFFFFFu = none */
+    uint32_t reserved[3];                /* MBZ */
+};
+```
+
+Total: 80 bytes per record (32 + 4*9 + 12 = 80).
+
+Map type numbers:
+
+```c
+#define BPFV_MAP_TYPE_UNSPEC          0
+#define BPFV_MAP_TYPE_HASH            1
+#define BPFV_MAP_TYPE_ARRAY           2
+#define BPFV_MAP_TYPE_PERCPU_HASH     3
+#define BPFV_MAP_TYPE_PERCPU_ARRAY    4
+#define BPFV_MAP_TYPE_LRU_HASH        5
+#define BPFV_MAP_TYPE_LPM_TRIE        6
+#define BPFV_MAP_TYPE_RINGBUF         7
+#define BPFV_MAP_TYPE_PROG_ARRAY      8   /* tail calls */
+#define BPFV_MAP_TYPE_XSKMAP          9   /* AF_XDP redirect */
+/* 10..127  reserved for future BPF-V map types */
+/* 128..255 reserved for vendor / offload-specific map types */
+```
+
+Where the semantic is identical, these numbers correspond 1:1
+with the matching `BPF_MAP_TYPE_*` from `bpf-next/include/uapi/linux/bpf.h`.
+The BPF-V kernel-side path implements them by delegating to the
+existing `struct bpf_map_ops` instances (see
+[03-kernel-interfaces.md](03-kernel-interfaces.md) §5).
+
+### 8.6 `.bpfv.relocs`
+
+A packed array of fixed-layout records:
+
+```c
+struct bpfv_reloc_v1 {
+    uint32_t r_offset;   /* byte offset into .text where the reloc applies */
+    uint32_t r_type;     /* R_BPFV_* */
+    uint32_t r_sym;      /* type-specific: see per-type table */
+    int32_t  r_addend;   /* signed addend */
+    uint32_t r_extra0;   /* type-specific (e.g. CO-RE access kind) */
+    uint32_t r_extra1;   /* type-specific; MBZ if unused */
+};
+```
+
+24 bytes per record. The number of records is
+`section_size / 24`; section size MUST be a multiple of 24.
+
+Records MUST be sorted by `r_offset` ascending and MUST NOT
+overlap. `r_offset` MUST point inside `.text`.
+
+#### 8.6.1 `R_BPFV_*` type numbers
+
+The BPF-V reloc number space is **independent of the
+`R_RISCV_*` space**. Standard RISC-V relocs (PC-relative pairs,
+`JAL`, etc.) live in `.rela.text` with their normal numbering;
+BPF-V relocs live in `.bpfv.relocs` with this numbering:
+
+| Type                     | Value | Patches at `r_offset`                         | Resolves against                                          |
+| ------------------------ | ----- | --------------------------------------------- | --------------------------------------------------------- |
+| `R_BPFV_NONE`            | 0     | (no-op)                                       | (none)                                                    |
+| `R_BPFV_HELPER_ID`       | 1     | 12-bit I-imm of `li a7, ?` (or `lui`+`addi` pair for larger ids) | helper id, looked up by `.symtab[r_sym].st_name`        |
+| `R_BPFV_KFUNC_SLOT`      | 2     | 12-bit I-imm of the `ld`/`lw` against the kfunc table | kfunc by name in `.symtab[r_sym]`                  |
+| `R_BPFV_MAP_FD`          | 3     | full 32-bit immediate pair (`lui`+`addi`)     | map descriptor index: `r_sym` is the index into `.bpfv.maps` (not `.symtab`) |
+| `R_BPFV_MAP_VALUE`       | 4     | full 32-bit immediate pair                    | map value pointer at offset `r_addend`; `r_sym` is `.bpfv.maps` index |
+| `R_BPFV_CORE_FIELD`      | 5     | 12-bit I-imm of a load/store                  | BTF field offset; `r_extra0` = access kind (see below)    |
+| `R_BPFV_CORE_SIZE`       | 6     | 12-bit I-imm of an `addi` (size literal)      | BTF type size                                             |
+| `R_BPFV_CORE_ENUMVAL`    | 7     | 12-bit I-imm                                  | BTF enum value                                            |
+| `R_BPFV_PROG_ENTRY`      | 8     | full 32-bit immediate pair                    | another BPF-V program's entry, by `.symtab[r_sym].st_name` (for tail calls) |
+| (9..63)                  |       | reserved for future BPF-V relocs              |                                                           |
+| (64..127)                |       | reserved for vendor / offload-specific relocs |                                                           |
+
+Loaders reject any record whose `r_type` is in the
+"reserved for future" range — default-deny.
+
+#### 8.6.2 CO-RE access kinds (for `R_BPFV_CORE_FIELD`)
+
+`r_extra0` carries the access kind:
+
+```c
+#define BPFV_CORE_FIELD_BYTE_OFFSET  0
+#define BPFV_CORE_FIELD_BYTE_SIZE    1
+#define BPFV_CORE_FIELD_EXISTS       2
+#define BPFV_CORE_FIELD_SIGNED       3
+#define BPFV_CORE_FIELD_LSHIFT_U64   4
+#define BPFV_CORE_FIELD_RSHIFT_U64   5
+```
+
+Semantics match libbpf's CO-RE relocation handling; see
+`bpf-next/tools/lib/bpf/relo_core.h`. BPF-V's loader implements
+the same resolution logic, against `.BTF.v` and the running
+kernel's BTF.
+
+### 8.7 `.BTF.v`
+
+BTF-V type information. The on-disk format is BTF (per
+`bpf-next/Documentation/bpf/btf.rst`) with the project-specific
+extensions defined in [04-toolchain.md](04-toolchain.md) §3.
+Endianness and alignment rules in §8.2 apply. This section is
+referenced by `key_btf_id` and `value_btf_id` in
+`.bpfv.maps` records and by `r_sym` in CO-RE relocs.
+
+### 8.8 Sample loader pseudocode
+
+```c
+int bpfv_load_object(const void *elf, size_t elf_size,
+                     struct bpfv_prog **out)
+{
+    const Elf_Ehdr *eh = elf;
+
+    if (eh->e_ident[EI_DATA]  != ELFDATA2LSB)   return -EINVAL;
+    if (eh->e_machine          != EM_RISCV)     return -EINVAL;
+
+    struct bpfv_meta_v1 *meta_raw =
+        find_section(elf, ".bpfv.meta");
+    if (!meta_raw)                              return -ENOENT;
+
+    /* Read the smallest portion that contains magic+version+meta_size */
+    if (meta_raw->magic         != BPFV_META_MAGIC) return -EINVAL;
+    if (meta_raw->version_major != 1)               return -EINVAL;
+
+    struct bpfv_meta_v1 meta = {0};
+    size_t copy = MIN(meta_raw->meta_size,
+                      sizeof(struct bpfv_meta_v1));
+    memcpy(&meta, meta_raw, copy);
+
+    /* Validate ELFCLASS matches the declared bytecode profile */
+    if (meta.bytecode_profile == BPFV_PROFILE_LINUX_RV64
+        && eh->e_ident[EI_CLASS] != ELFCLASS64) return -EINVAL;
+    if (meta.bytecode_profile == BPFV_PROFILE_RTOS_RV32
+        && eh->e_ident[EI_CLASS] != ELFCLASS32) return -EINVAL;
+
+    /* License check */
+    const char *lic = find_section(elf, ".bpfv.license");
+    if (!lic || !license_is_gpl_compatible(lic)) return -EPERM;
+
+    /* Reject forbidden sections */
+    if (has_section(elf, ".data")  || has_section(elf, ".bss")
+     || has_section(elf, ".tdata") || has_section(elf, ".tbss")
+     || has_section(elf, ".dynamic"))
+        return -EINVAL;
+
+    /* Parse .bpfv.maps; create kernel maps */
+    /* Verify .text under the selected verifier profile */
+    /* Apply .rela.text (standard R_RISCV_*) */
+    /* Apply .bpfv.relocs (R_BPFV_*) */
+    /* Allocate exec memory, copy text, fence.i, install */
+
+    return 0;
+}
+```
+
+### 8.9 What this spec deliberately excludes
+
+| Excluded                                        | Why                                                |
+| ----------------------------------------------- | -------------------------------------------------- |
+| Mutable globals (`.data`, `.bss`)               | All state lives in maps; programs are reentrant.   |
+| Thread-local storage                            | Programs are not threads.                          |
+| Dynamic linking (`DT_NEEDED`, `dlopen`, PLT)    | Programs are self-contained; load-time resolution. |
+| Floating-point relocs                           | F/D extensions forbidden in both profiles (§3).    |
+| C++ exceptions, `.eh_frame` runtime use         | No exceptions in BPF-V programs.                   |
+| Compressed ELF sections (`SHF_COMPRESSED`)      | Loader stays simple; compress upstream if needed.  |
+| Multiple `.text` sections                       | Single entry; programs are a single compilation unit. |
+
+Each exclusion is a deliberate decision and may be revisited in
+a future major version. Until then, a loader that encounters one
+of these MUST reject the object.
+
+### 8.10 Open items
+
+- `R_BPFV_*` numbers above 8 are reserved but unassigned. As new
+  reloc kinds are needed (e.g. for sleepable program entries,
+  for SIMD support if `V` lands), they are assigned here in
+  ascending order.
+- Vendor / offload-specific map types (128..255) and reloc types
+  (64..127): vendor registration mechanism. Out of scope for
+  RFC v1; document in a follow-up if any vendor approaches.
+- The exact BTF-V extension format (referenced by §8.7) is
+  specified in [04-toolchain.md](04-toolchain.md) §3 and is its
+  own open item.
 
 ## 9. Worked micro-example
 
@@ -290,13 +616,12 @@ instructions. There is no eBPF-style decode step.
 - Decide whether vector (`V`) becomes a per-program flag inside
   `bpfv-linux-rv64` post-RFC, or a new profile name
   (`bpfv-linux-rv64v`). Out of scope for RFC v1.
-- Define exact `.bpfv.*` section binary layouts (see
-  [03-kernel-interfaces.md](03-kernel-interfaces.md)) — work
-  unblocked by Decisions 1 and 2.
-- Define BPF-V-specific ELF reloc type numbers (`R_BPFV_*`).
 - Decide policy on linker relaxation: verify before or after
   relaxation, or require `-mno-relax` from the compiler. See
   also [06-verifier.md](06-verifier.md) §8.
+- Vendor / offload-specific map types (128..255) and reloc
+  types (64..127) — vendor registration mechanism. Out of scope
+  for RFC v1.
 
 The following previously-open items are now **decided** (recorded
 here for traceability):
@@ -308,3 +633,7 @@ here for traceability):
 - ~~Helper invocation: `ecall` with `a7`, or jump-table~~ → §6.2
   and §6.4, decided: `ecall` source-level encoding, loader
   rewrites to direct call at install time.
+- ~~Define exact `.bpfv.*` section binary layouts~~ → §8.3–§8.7,
+  decided.
+- ~~Define BPF-V-specific ELF reloc type numbers (`R_BPFV_*`)~~
+  → §8.6.1, decided.
