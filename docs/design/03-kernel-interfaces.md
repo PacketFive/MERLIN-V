@@ -66,61 +66,77 @@ SYSCALL_DEFINE3(merlin,
                 unsigned int, size);
 ```
 
-Initial command set:
+### 2.1 Canonical UAPI
 
-| cmd | Purpose |
-| --- | ------- |
+The wire format of `union merlin_attr`, command numbers (`enum
+merlin_cmd`), program / map / attach / profile enumerations, and
+prog-load / map-create / map-update flag bits are specified by the
+draft header
+
+- [`uapi/linux/merlin.h`](uapi/linux/merlin.h)
+
+with the MVDP / AF\_MVDP socket-family UAPI in
+
+- [`uapi/linux/if_mvdp.h`](uapi/linux/if_mvdp.h)
+
+These headers are the **source of truth** for layouts and constants
+(per [`uapi/README.md`](uapi/README.md)). The rest of this section
+is rationale and the summary tables; if a value here disagrees with
+the header, the header wins.
+
+### 2.2 Initial command set
+
+| `cmd` | Purpose |
+| ----- | ------- |
 | `MERLIN_PROG_LOAD` | Submit an ELF blob; receive a prog fd. |
 | `MERLIN_PROG_TEST_RUN` | Execute a loaded program against a user-supplied input buffer. |
-| `MERLIN_PROG_GET_INFO_BY_FD` | Introspection. |
-| `MERLIN_MAP_CREATE` | Same semantics as `BPF_MAP_CREATE`. |
-| `MERLIN_MAP_*_ELEM` | Lookup / update / delete / get-next. |
-| `MERLIN_LINK_CREATE` | Attach a program to a hook. |
-| `MERLIN_LINK_UPDATE` | Replace a program at an existing link. |
-| `MERLIN_BTF_LOAD` | Submit MERLIN BTF. |
+| `MERLIN_PROG_GET_INFO_BY_FD` | Introspection (`struct merlin_prog_info`). |
+| `MERLIN_PROG_GET_NEXT_ID` / `MERLIN_PROG_GET_FD_BY_ID` | Iteration and lookup by ID. |
+| `MERLIN_MAP_CREATE` | Create a map (delegates to `kernel/bpf/` map ops). |
+| `MERLIN_MAP_{LOOKUP,UPDATE,DELETE,GET_NEXT}_ELEM` | Element operations. |
+| `MERLIN_MAP_GET_INFO_BY_FD` / `MERLIN_MAP_GET_FD_BY_ID` | Introspection and lookup. |
+| `MERLIN_LINK_CREATE` | Attach a program to a hook (XDP-V, TC-V, MVDP, kprobe, ...). |
+| `MERLIN_LINK_UPDATE` | Atomically replace a program at an existing link. |
+| `MERLIN_LINK_DETACH` | Detach the program. |
+| `MERLIN_LINK_GET_INFO_BY_FD` | Introspection (`struct merlin_link_info`). |
+| `MERLIN_BTF_LOAD` / `MERLIN_BTF_GET_FD_BY_ID` | Submit and look up MERLIN BTF. |
 | `MERLIN_OBJ_PIN` / `MERLIN_OBJ_GET` | bpffs-style pinning (parallel mount: `merlinfs`, TBD). |
 
-The `union merlin_attr` mirrors `union bpf_attr` field-for-field where it
-makes sense (so map ops can be near-identical), and adds:
+The full enumeration with stable numbers is in
+[`uapi/linux/merlin.h`](uapi/linux/merlin.h) (`enum merlin_cmd`).
 
-```c
-struct {
-    __u64 elf_ptr;        // user pointer to ELF blob
-    __u32 elf_len;
-    __u32 prog_type;      // MERLIN_PROG_TYPE_*
-    __u32 expected_attach_type;
-    __u32 profile;        // MERLIN_PROFILE_LINUX_RV64 | MERLIN_PROFILE_RTOS_RV32
-    __u32 log_level;
-    __u64 log_buf;
-    __u32 log_size;
-    char  prog_name[MERLIN_OBJ_NAME_LEN];
-    __u64 license_ptr;    // user pointer to NUL-terminated license string
-    /* ... */
-} prog_load;
-```
+### 2.3 Profile
 
-The `profile` field is the *bytecode* profile declared in the
-program's `.merlin.meta` section. Initial values:
+The `profile` field of `prog_load` is the *bytecode* profile declared in
+the program's `.merlin.meta` section.
 
 | Value | Bytecode profile | march string |
 | ----- | ---------------- | ------------ |
 | `MERLIN_PROFILE_LINUX_RV64` | `merlin-linux-rv64` | `rv64imac_zicsr_zifencei` |
 | `MERLIN_PROFILE_RTOS_RV32`  | `merlin-rtos-rv32`  | `rv32imc_zicsr_zifencei` (optional `_a`) |
 
-See [02-isa-and-bytecode.md](02-isa-and-bytecode.md) §1 for
-profile definitions and §3 for per-profile extension policy.
-The *verifier* profile (default / sleepable / largemem / ...) is
-selected separately based on the hook the program will attach
-to; see [06-verifier.md](06-verifier.md) §7.
+See [02-isa-and-bytecode.md](02-isa-and-bytecode.md) §1 for profile
+definitions and §3 for per-profile extension policy. The *verifier*
+profile (default / sleepable / largemem / ...) is selected
+separately based on the (prog\_type, attach\_type) pair; see
+[06-verifier.md](06-verifier.md) §7.
+
+### 2.4 Program types
 
 `prog_type` enumerates MERLIN-V hook contracts. Initial set:
 
-- `MERLIN_PROG_TYPE_XDP_V`
+- `MERLIN_PROG_TYPE_XDP_V` — MERLIN-V program on the existing XDP hook
+  (cohabitation; reuses kernel `struct xdp_buff`).
 - `MERLIN_PROG_TYPE_TC_V`
 - `MERLIN_PROG_TYPE_KPROBE_V`
 - `MERLIN_PROG_TYPE_TRACEPOINT_V`
 - `MERLIN_PROG_TYPE_SOCKET_FILTER_V`
 - `MERLIN_PROG_TYPE_PERF_EVENT_V`
+- `MERLIN_PROG_TYPE_MVDP` — MERLIN-V *native* network data path.
+  Distinct from `XDP_V`: its own `struct mvdp_md` context, its own
+  verdict enum, its own hook modes (SKB / DRV / HW), and its own
+  socket family (`AF_MVDP`). See
+  [08-mvdp-and-af-mvdp.md](08-mvdp-and-af-mvdp.md) §2.
 
 Each corresponds to a small in-kernel record describing its `ctx` type,
 allowed helpers, and attach machinery. See [04-toolchain.md](04-toolchain.md)

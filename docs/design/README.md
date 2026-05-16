@@ -24,14 +24,21 @@ the source material for:
 | 00 | [`00-overview.md`](00-overview.md) — vision, goals, non-goals, glossary | starter |
 | 01 | [`01-ebpf-comparative-analysis.md`](01-ebpf-comparative-analysis.md) — eBPF anatomy and where MERLIN-V diverges | starter |
 | 02 | [`02-isa-and-bytecode.md`](02-isa-and-bytecode.md) — the MERLIN-V ISA profile on top of RV32/RV64 | starter |
-| 03 | [`03-kernel-interfaces.md`](03-kernel-interfaces.md) — uapi, syscall surface, loader, maps | starter |
+| 03 | [`03-kernel-interfaces.md`](03-kernel-interfaces.md) — uapi, syscall surface, loader, maps | draft |
 | 04 | [`04-toolchain.md`](04-toolchain.md) — GCC vs LLVM, libmerlin, MERLIN BTF, CO-RE-V | starter |
 | 05 | [`05-reference-platforms.md`](05-reference-platforms.md) — Icicle Kit, ESP32-C3, Zephyr | starter |
 | 06 | [`06-verifier.md`](06-verifier.md) — verifier strategy on a permissive ISA | starter |
 | 07 | [`07-jit-and-offload.md`](07-jit-and-offload.md) — host JIT, NIC/accel offload | starter |
+| 08 | [`08-mvdp-and-af-mvdp.md`](08-mvdp-and-af-mvdp.md) — MVDP program type and AF\_MVDP socket family (unified socket model) | draft |
+| 09 | [`09-mvcp-kernel-uapi.md`](09-mvcp-kernel-uapi.md) — MVCP layer A: in-kernel control-plane primitives | draft |
+| 10 | [`10-mvcp-daemon-and-fleet.md`](10-mvcp-daemon-and-fleet.md) — MVCP layer B: `merlind` reference daemon and fleet semantics | draft |
+| 11 | [`11-mvcp-attestation.md`](11-mvcp-attestation.md) — MVCP attestation protocol and HW chain | draft |
 
 For the course/training-material companion to these design docs, see
 [`../academics/`](../academics/README.md).
+
+Draft kernel UAPI headers (the source of truth for layouts and
+constants once they exist) live under [`uapi/`](uapi/README.md).
 
 Each document starts as a *starter* (skeleton with the framing committed
 in writing), then evolves into a *draft* (complete first pass, internally

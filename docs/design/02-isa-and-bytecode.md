@@ -418,7 +418,9 @@ Map type numbers:
 #define MERLIN_MAP_TYPE_RINGBUF         7
 #define MERLIN_MAP_TYPE_PROG_ARRAY      8   /* tail calls */
 #define MERLIN_MAP_TYPE_XSKMAP          9   /* AF_XDP redirect */
-/* 10..127  reserved for future MERLIN-V map types */
+#define MERLIN_MAP_TYPE_MVSKMAP        10   /* AF_MVDP redirect; see
+                                               docs/design/08-mvdp-and-af-mvdp.md §4 */
+/* 11..127  reserved for future MERLIN-V map types */
 /* 128..255 reserved for vendor / offload-specific map types */
 ```
 

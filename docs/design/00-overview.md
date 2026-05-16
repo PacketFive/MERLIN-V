@@ -122,11 +122,22 @@ verifier profiles that admit substantially more of ANSI / GNU C. See
 model.
 
 ### NG3. Replacing XDP, AF\_XDP, sockmap, etc.
-MERLIN-V is an execution engine, not a hook surface. The hook surfaces
-(XDP, TC, kprobe, tracepoint, sockmap, sched\_ext, …) are reused from
-the kernel — initially by *cohabiting* with eBPF program types, and
-later by exposing parallel `BPF_V_PROG_TYPE_*` definitions where the
-program needs RISC-V-only semantics.
+MERLIN-V is an execution engine, not a wholesale replacement for the
+kernel's existing hook surfaces. The hooks (XDP, TC, kprobe,
+tracepoint, sockmap, sched\_ext, …) continue to serve eBPF programs
+unchanged.
+
+MERLIN-V approaches network programmability two ways:
+
+- **Cohabit** on existing hooks via
+  `MERLIN_PROG_TYPE_XDP_V`, `MERLIN_PROG_TYPE_TC_V`, … (see
+  [03-kernel-interfaces.md](03-kernel-interfaces.md) §2). These are for
+  porting MERLIN-V programs onto unmodified kernel hooks.
+- **Add a native data path**, **MVDP**, with its own context,
+  verdict set, attach modes, and socket family (`AF_MVDP`). MVDP is
+  a *parallel* facility to XDP/AF\_XDP, not a replacement: both can
+  exist on the same system, even on the same netdev on different
+  queues. See [08-mvdp-and-af-mvdp.md](08-mvdp-and-af-mvdp.md).
 
 ## 4. Threat and execution model
 
@@ -203,6 +214,19 @@ The following previously-open questions are now **decided**
   [06-verifier.md](06-verifier.md) §4.
 - ~~Toolchain default~~ → GCC and Clang both supported as
   first-class. See [04-toolchain.md](04-toolchain.md) §1.
+- ~~Network data path~~ → MVDP program type and AF\_MVDP socket
+  family added as the native MERLIN-V data path, parallel to
+  XDP/AF\_XDP rather than replacing them, with a unified socket
+  model that collapses the four-step AF\_XDP setup to one fd. See
+  [08-mvdp-and-af-mvdp.md](08-mvdp-and-af-mvdp.md).
+- ~~Control plane / fleet management~~ → MVCP (MERLIN-V Control
+  Plane) lands as two layers: in-kernel UAPI primitives (signed
+  programs, attestation, atomic map batches, program namespaces,
+  standard telemetry, multicast control channel) and a reference
+  `merlind` daemon with fleet semantics on top. See
+  [09-mvcp-kernel-uapi.md](09-mvcp-kernel-uapi.md),
+  [10-mvcp-daemon-and-fleet.md](10-mvcp-daemon-and-fleet.md), and
+  [11-mvcp-attestation.md](11-mvcp-attestation.md).
 
 ## 7. What MERLIN-V is not (and what it could become)
 
