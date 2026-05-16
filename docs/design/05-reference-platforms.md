@@ -74,23 +74,51 @@ reusability claim is demonstrated end-to-end.
 
 ## 3. Linux on x86\_64 host (cross-target)
 
-- Used as the canonical *non-RISC-V* host, to exercise the real Host
-  JIT path (RISC-V → x86\_64 translation).
+- Used as the canonical *non-RISC-V x86* host, to exercise the real
+  Host JIT path (RISC-V → x86\_64 translation).
 - Required for CI: developers without an Icicle Kit can still build
   and run the full stack.
 
-## 4. SmartNIC / accelerator class (future)
+## 4. Raspberry Pi 4B (arm64 Linux, cross-target)
 
-Tracked here to keep the design grounded; not in Phase 1 deliverables.
+- Used as the canonical *non-RISC-V arm64* host, to exercise the
+  real Host JIT path (RISC-V → arm64 translation).
+- Cortex-A72 quad-core, 64-bit. Runs upstream Linux + standard
+  Debian/Ubuntu, so the BPF-V kernel module from
+  [`03-kernel-interfaces.md`](03-kernel-interfaces.md) and the
+  user-space libbpfv build with no special toolchain.
+- Demonstrates that BPF-V is not an x86-only story on commodity
+  Linux: the same `.bpfv.o` produced by stock RISC-V GCC runs here,
+  with the host JIT translating to AArch64. Coverage parity with
+  what eBPF offers on the same board.
+- Cheap enough to be in every contributor's hands.
 
-- A NIC or DPU with a RISC-V control core (multiple are in development;
-  several proprietary, e.g. several CXL accelerators publish RISC-V
-  management cores). BPF-V offload would push a verified image to the
-  NIC core via PCIe, with the NIC firmware acting as the BPF-V monitor.
+### 4.1 Bring-up checklist
+
+- [ ] Boot upstream Linux on RPi 4B (Raspberry Pi OS / Ubuntu Server
+      LTS / Debian arm64).
+- [ ] Build the BPF-V kernel module from `kernel/bpfv/` against the
+      running kernel headers.
+- [ ] Build and run user-space selftests with the arm64 host JIT.
+- [ ] Cross-check: the same `.bpfv.o` that runs on x86\_64 Linux
+      (host JIT RV→x86\_64) runs here (host JIT RV→arm64) and on the
+      MPFS Icicle Kit (pass-through). Identical observable results.
+
+## 5. SmartNIC / accelerator class (future)
+
+Tracked here to keep the design grounded; not in Phase 1 deliverables
+and not represented in the current lab inventory.
+
+- A NIC or DPU with a RISC-V control core. BPF-V offload would push
+  a verified image to the NIC core via PCIe, with the NIC firmware
+  acting as the BPF-V monitor.
 - UALink and CXL targets follow the same model: program is the wire
   format, monitor enforces the sandbox.
 
-## 5. Zephyr RTOS as a tier-1 OS target
+When concrete hardware enters the project's lab inventory, this
+section will name it; until then no specific device is committed to.
+
+## 6. Zephyr RTOS as a tier-1 OS target
 
 Zephyr is a tier-1 host for BPF-V — not an afterthought to the Linux
 path. The Zephyr environment is in some ways a *better* match for
@@ -98,7 +126,7 @@ BPF-V's design than the Linux kernel is, because the things BPF-V
 provides (sandboxed safety, hot-reloadable logic, a portable
 application bytecode) are things Zephyr lacks today.
 
-### 5.1 The gap BPF-V fills on Zephyr
+### 6.1 The gap BPF-V fills on Zephyr
 
 Zephyr's current deployment model freezes application behaviour at
 flash time. A/B image swap with full reflash is the canonical update
@@ -117,7 +145,7 @@ BPF-V's `rtos/zephyr` profile (see
 [`06-verifier.md`](06-verifier.md) §7.2) is purpose-built for this
 gap.
 
-### 5.2 Concrete advantages of running BPF-V on Zephyr
+### 6.2 Concrete advantages of running BPF-V on Zephyr
 
 **1. Safety without a process abstraction.** Zephyr typically has no
 MMU — just an MPU — and no process model. Application bugs corrupt
@@ -187,10 +215,12 @@ the difference between "a software update" and "an outage."
 
 **8. Cross-board portability of application logic.** Because the
 bytecode is RV32IMC (or RV64IMAC) — not a specific MCU's quirks —
-the same `app.bpfv` runs on ESP32-C3, MPFS Icicle E51, BL602, CH32V,
-SiFive FE310, and on RISC-V soft cores in Lattice / Microchip /
-Xilinx FPGAs. **Application logic is decoupled from silicon**, in a
-way Zephyr application binaries today are not.
+the same `app.bpfv` runs on the ESP32-C3, the MPFS Icicle E51, and
+on RISC-V soft cores synthesised into the Icicle's PolarFire fabric.
+**Application logic is decoupled from silicon**, in a way Zephyr
+application binaries today are not. As more RISC-V MCUs reach the
+project's lab in the future, the same image will run on them
+without recompilation.
 
 **9. Auditable, deterministic behaviour.** Verifier-provided
 termination and memory-safety proofs make a BPF-V module
@@ -207,7 +237,7 @@ device, runs them in place, and returns results — the eBPF
 observability model on a 100 KB MCU. For fleet operators this is
 operationally significant.
 
-### 5.3 The strategic framing
+### 6.3 The strategic framing
 
 The most interesting framing of BPF-V on Zephyr is not "Zephyr gets
 a sandbox":
@@ -224,7 +254,7 @@ unlock and most of why BPF-V on Zephyr is architecturally more
 interesting than BPF-V on x86 Linux, where it competes with mature
 eBPF.
 
-### 5.4 Where the advantage is weakest (honest bookend)
+### 6.4 Where the advantage is weakest (honest bookend)
 
 - For a single-tenant device whose firmware is flashed once and
   never customised, BPF-V is overhead. Plain C is fine.
@@ -237,7 +267,7 @@ eBPF.
   Zephyr-on-BPF-V story is on RISC-V MCUs, where the pass-through
   path applies.
 
-### 5.5 Engineering plan (unchanged from prior text)
+### 6.5 Engineering plan (unchanged from prior text)
 
 - Maintain a `runtime/zephyr/` BPF-V runtime that:
   - Validates and verifies under the embedded profile's step cap
@@ -249,17 +279,28 @@ eBPF.
     over a transport (UART, BLE, USB-CDC).
 - Ship as an out-of-tree Zephyr module first; upstream once stable.
 
-## 6. CI matrix (target state)
+## 7. CI matrix (target state)
+
+The CI matrix is constrained to platforms the project actually has
+in its lab inventory: x86\_64 Linux developer hosts, the Raspberry
+Pi 4B (arm64 Linux), the MPFS Icicle Kit (RV64 Linux + Zephyr on
+E51 / fabric soft cores), and the ESP32-C3-DevKitM-1 (RV32 Zephyr).
+QEMU stands in for hermetic, hardware-independent reproduction of
+each path.
 
 | Builder | Toolchain | Profile | Smoke test |
 | ------- | --------- | ------- | ---------- |
-| x86\_64 Linux | GCC | host-jit-x86\_64 | selftests, host JIT |
-| qemu-system-riscv64 | GCC | rv64imac-lp64 | selftests, pass-through |
-| qemu-system-riscv32 | GCC | rv32imc-ilp32 | selftests, pass-through |
-| Icicle Kit Linux | GCC | rv64imac-lp64 | XDP-V drop |
-| Icicle Kit Zephyr (E51) | GCC | rv64imc-lp64 | trace helper |
-| esp32c3\_devkitm Zephyr | GCC | rv32imc-ilp32 | packet classifier |
-| x86\_64 Linux | Clang | host-jit-x86\_64 | selftests (Clang-built objects) |
+| x86\_64 Linux developer host | GCC | host-jit-x86\_64 | selftests, host JIT, kernel module |
+| x86\_64 Linux developer host | Clang | host-jit-x86\_64 | selftests (Clang-built objects) |
+| Raspberry Pi 4B (arm64 Linux) | GCC | host-jit-arm64 | selftests, host JIT, kernel module |
+| `qemu-system-riscv64` (Linux/virt) | GCC | rv64imac-lp64 | selftests, pass-through |
+| `qemu-system-riscv32` (Linux/virt) | GCC | rv32imc-ilp32 | selftests, pass-through |
+| `qemu_riscv64` (Zephyr) | GCC | rv64imac-lp64 | trace + GPIO helpers |
+| `qemu_riscv32` (Zephyr) | GCC | rv32imc-ilp32 | trace + GPIO helpers |
+| MPFS Icicle Kit (Linux on U54) | GCC | rv64imac-lp64 | XDP-V drop |
+| MPFS Icicle Kit (Zephyr on E51) | GCC | rv64imc-lp64 | trace helper |
+| MPFS Icicle fabric soft core (rv32imc) | GCC | rv32imc-ilp32 | offload demonstrator |
+| `esp32c3_devkitm` (Zephyr) | GCC | rv32imc-ilp32 | packet classifier |
 
 `qemu` boards stand in for "did our compiler produce something the
 verifier accepts" and "did the pass-through JIT run it." The physical

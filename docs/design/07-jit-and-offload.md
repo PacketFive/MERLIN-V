@@ -92,7 +92,11 @@ Architectural notes per host:
   with `a7` materialised as the first call arg.
 - **arm64.** Map RV `xN` to `x19–x28` for callee-saved virtuals plus
   scratch in `x9–x15`. `ecall` → `bl bpfv_helper_trampoline`.
-- **(future) ppc64le, s390x, loongarch.** Out of scope for Phase 1.
+
+Additional non-RISC-V host JITs (ppc64le, s390x, loongarch, etc.)
+are not in the project's plan: they belong to whichever future
+contributor brings the corresponding hardware and the willingness to
+maintain the backend.
 
 The host JIT does *not* need to be byte-exact RVWMO-equivalent; it
 needs to be observably equivalent under the BPF-V memory model, which

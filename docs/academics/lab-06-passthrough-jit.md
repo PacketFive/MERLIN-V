@@ -5,9 +5,9 @@ Effort tier: M
 Prerequisites: Lab 05.
 Design doc: [`docs/design/07-jit-and-offload.md`](../design/07-jit-and-offload.md) §2.
 
-> **You must run this lab on a RISC-V host.** Either a real RISC-V
-> machine (Icicle Kit, VisionFive 2, etc.) or `qemu-system-riscv64`
-> from Lab 00. The whole point of pass-through is that the host CPU is
+> **You must run this lab on a RISC-V host.** Either the MPFS Icicle
+> Kit (a project reference platform) or `qemu-system-riscv64` from
+> Lab 00. The whole point of pass-through is that the host CPU is
 > RISC-V.
 
 ## Learning objectives
