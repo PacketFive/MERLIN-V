@@ -23,6 +23,7 @@ The split mirrors how the eBPF tree organises BPF: kernel UAPI in
 | `merlin/license.h`         | `tools/lib/merlin/include/merlin/license.h` |
 | `merlin/core.h`            | `tools/lib/merlin/include/merlin/core.h` |
 | `merlin/stats.h`           | `tools/lib/merlin/include/merlin/stats.h` |
+| `merlin/attestation.h`     | `tools/lib/merlin/include/merlin/attestation.h` |
 | `merlin/mvdp.h`            | `tools/lib/merlin/include/merlin/mvdp.h` |
 | `merlin/merlin.h`          | `tools/lib/merlin/include/merlin/merlin.h` |
 

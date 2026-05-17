@@ -1,7 +1,10 @@
 # 11 — MVCP Attestation
 
 *Status: draft. The attestation protocol that backs
-[`09-mvcp-kernel-uapi.md`](09-mvcp-kernel-uapi.md) §3.2.*
+[`09-mvcp-kernel-uapi.md`](09-mvcp-kernel-uapi.md) §3.2.
+**User-space prototype landed (tools/merlin-attest/) — MAK
+lifecycle, ed25519 quote sign/verify, replay defence via
+`quote_seq`. HW chain reserved but not yet implemented.***
 
 ## 1. What we are attesting to
 

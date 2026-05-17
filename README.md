@@ -40,7 +40,8 @@ UAPI headers and user-space libraries (`libmerlin`).
 │   ├── merlin-verifier/   # User-space abstract-interpretation verifier
 │   ├── merlin-jit-x86_64/ # User-space RV64 -> x86_64 host JIT
 │   ├── merlin-sign/       # MVCP signed-program tool (ed25519 sign/verify)
-│   └── merlin-telemetry/  # MVCP standard telemetry export (dispatch shim)
+│   ├── merlin-telemetry/  # MVCP standard telemetry export (dispatch shim)
+│   └── merlin-attest/     # MVCP load attestation (MAK + quote)
 ├── net-next/              # submodule: cutting-edge Linux networking tree (reference only)
 ├── bpf-next/              # submodule: BPF subsystem tree (reference only; eBPF/XDP/AF_XDP/…)
 ├── LICENSE

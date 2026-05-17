@@ -1,0 +1,6 @@
+# Build artefacts
+merlin-attest
+*.o
+test_*.bin
+test_mak/
+test_mak.alt/
