@@ -1,0 +1,5 @@
+# Build artefacts
+merlin-telemetry
+*.o
+test_*.o
+test_*.bin

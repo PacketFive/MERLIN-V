@@ -37,6 +37,7 @@
 #include <merlin/helpers.h>
 #include <merlin/maps.h>
 #include <merlin/core.h>
+#include <merlin/stats.h>
 
 /*
  * Profile constants - mirror enum merlin_profile in <linux/merlin.h>.

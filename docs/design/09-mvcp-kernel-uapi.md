@@ -2,7 +2,9 @@
 
 *Status: draft. The user-visible API surface for MVCP — the control
 plane primitives MERLIN-V ships as kernel UAPI.  **User-space
-prototype of signed programs landed (tools/merlin-sign/, see §3.1).***
+prototype of signed programs landed (tools/merlin-sign/, see §3.1);
+user-space prototype of standard telemetry landed
+(tools/merlin-telemetry/, see §3.5).***
 
 ## 1. What MVCP is
 
@@ -293,19 +295,23 @@ network interfaces."
 ### 3.5 Standard telemetry export
 
 Every loaded program automatically gains a per-CPU counter block.
-The block layout is fixed UAPI:
+The block layout is fixed UAPI.  See the canonical header
+[`uapi/merlin/stats.h`](uapi/merlin/stats.h):
 
 ```c
+#define MERLIN_STATS_V1_VERDICTS 8
+
 struct merlin_prog_stats_v1 {
-    __u32 size;             /* this struct size, forward compat       */
+    __u32 size;                 /* sizeof(struct) as emitted; forward compat */
     __u32 _pad;
-    __u64 run_count;        /* number of times the program ran        */
-    __u64 run_ns_total;     /* total ns spent in the program          */
-    __u64 verdict_count[8]; /* indexed by enum mvdp_action / similar  */
+    __u64 run_count;            /* number of times the program ran           */
+    __u64 run_ns_total;         /* total ns spent inside the program         */
+    __u64 verdict_count[MERLIN_STATS_V1_VERDICTS];
+                                /* indexed by enum mvdp_action / equivalent  */
     __u64 helper_call_count;
     __u64 helper_fault_count;
-    __u64 verifier_load_time_ns;     /* one-shot, never updated again  */
-    __u64 last_run_time_ns_boot;     /* CLOCK_BOOTTIME of last run     */
+    __u64 verifier_load_ns;     /* one-shot, never updated again             */
+    __u64 last_run_time_ns;     /* CLOCK_BOOTTIME ns of last invocation      */
     __u64 _reserved[4];
 };
 ```
