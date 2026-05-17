@@ -1,16 +1,29 @@
 # MERLIN-V UAPI Headers (draft)
 
-This directory holds the canonical draft of the MERLIN-V kernel UAPI.
-The files here will be lifted verbatim (modulo upstream-style review
-formatting) into the kernel patch series:
+This directory holds the canonical draft of the MERLIN-V UAPI in
+two halves:
+
+| Subdir | Audience | Eventual in-tree path |
+| ------ | -------- | --------------------- |
+| [`linux/`](linux/)   | kernel + userspace loaders | `include/uapi/linux/` |
+| [`merlin/`](merlin/) | MERLIN-V programs (C source) | `tools/lib/merlin/include/merlin/` |
+
+The split mirrors how the eBPF tree organises BPF: kernel UAPI in
+`include/uapi/linux/bpf.h`, program-side headers in
+`tools/lib/bpf/include/bpf/*.h`.
 
 | Draft path | Eventual in-tree path |
 | ---------- | --------------------- |
-| `linux/merlin.h`  | `include/uapi/linux/merlin.h`  |
-| `linux/if_mvdp.h` | `include/uapi/linux/if_mvdp.h` |
-
-The split mirrors how the eBPF tree organises BPF (`bpf.h`) and AF\_XDP
-(`if_xdp.h`).
+| `linux/merlin.h`           | `include/uapi/linux/merlin.h`        |
+| `linux/if_mvdp.h`          | `include/uapi/linux/if_mvdp.h`       |
+| `merlin/types.h`           | `tools/lib/merlin/include/merlin/types.h` |
+| `merlin/helpers.h`         | `tools/lib/merlin/include/merlin/helpers.h` |
+| `merlin/maps.h`            | `tools/lib/merlin/include/merlin/maps.h` |
+| `merlin/section_macros.h`  | `tools/lib/merlin/include/merlin/section_macros.h` |
+| `merlin/license.h`         | `tools/lib/merlin/include/merlin/license.h` |
+| `merlin/core.h`            | `tools/lib/merlin/include/merlin/core.h` |
+| `merlin/mvdp.h`            | `tools/lib/merlin/include/merlin/mvdp.h` |
+| `merlin/merlin.h`          | `tools/lib/merlin/include/merlin/merlin.h` |
 
 ## Source-of-truth ordering
 

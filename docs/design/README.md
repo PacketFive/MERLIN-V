@@ -25,7 +25,7 @@ the source material for:
 | 01 | [`01-ebpf-comparative-analysis.md`](01-ebpf-comparative-analysis.md) — eBPF anatomy and where MERLIN-V diverges | starter |
 | 02 | [`02-isa-and-bytecode.md`](02-isa-and-bytecode.md) — the MERLIN-V ISA profile on top of RV32/RV64 | starter |
 | 03 | [`03-kernel-interfaces.md`](03-kernel-interfaces.md) — uapi, syscall surface, loader, maps | draft |
-| 04 | [`04-toolchain.md`](04-toolchain.md) — GCC vs LLVM, libmerlin, MERLIN BTF, CO-RE-V | starter |
+| 04 | [`04-toolchain.md`](04-toolchain.md) — GCC vs LLVM, libmerlin, MERLIN BTF, CO-RE-V | draft |
 | 05 | [`05-reference-platforms.md`](05-reference-platforms.md) — Icicle Kit, ESP32-C3, Zephyr | starter |
 | 06 | [`06-verifier.md`](06-verifier.md) — verifier strategy on a permissive ISA | starter |
 | 07 | [`07-jit-and-offload.md`](07-jit-and-offload.md) — host JIT, NIC/accel offload | starter |

@@ -323,7 +323,14 @@ struct merlin_meta_v1 {
 };
 ```
 
-Total: 80 bytes for v1 (8 + 8 + 16 + 16 + 32 = 80; check: 4+2+2 + 4+4 + 4+4+4+4 + 4+4+8 + 32+32 = 80). MBZ = "must be zero" (loader rejects non-zero values in reserved fields, so the field can be repurposed later without ambiguity).
+Total: 112 bytes for v1, broken down as:
+
+- identity: 4 + 2 + 2 + 4 + 4 = 16 bytes
+- profile/kind: 4 + 4 + 4 + 4 = 16 bytes
+- numeric limits: 4 + 4 + 4 + 4 = 16 bytes
+- identification: 32 + 32 = 64 bytes
+
+MBZ = "must be zero" (loader rejects non-zero values in reserved fields, so the field can be repurposed later without ambiguity).
 
 `flags` bits:
 
@@ -399,11 +406,11 @@ struct merlin_map_desc_v1 {
     uint32_t key_btf_id;                 /* index into .merlin.btf; 0 = untyped */
     uint32_t value_btf_id;               /* index into .merlin.btf; 0 = untyped */
     uint32_t inner_map_idx;              /* for map-in-map; 0xFFFFFFFFu = none */
-    uint32_t reserved[3];                /* MBZ */
+    uint32_t reserved[4];                /* MBZ */
 };
 ```
 
-Total: 80 bytes per record (32 + 4*9 + 12 = 80).
+Total: 80 bytes per record: 32 (name) + 8 × 4 (eight u32 fields) + 16 (four-u32 reserved) = 80.
 
 Map type numbers:
 

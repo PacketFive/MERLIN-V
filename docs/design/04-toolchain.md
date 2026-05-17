@@ -175,9 +175,21 @@ re-implementing a disassembler.
 
 ## 6. Open items
 
-- Decide whether to ship one shared header set (`<merlin/*.h>`) for both
-  GCC and Clang, or two with `#ifdef __clang__` shims.
+- ~~Decide whether to ship one shared header set (`<merlin/*.h>`) for both
+  GCC and Clang, or two with `#ifdef __clang__` shims.~~ **Decided:**
+  one shared set, with minimal `#ifdef __clang__` switches only where
+  Clang has a built-in that GCC lacks (`__builtin_preserve_access_index`
+  for CO-RE-V). The header layout and the canonical helper-ID
+  allocation are in [`uapi/merlin/`](uapi/merlin/README.md).
 - Decide CO-RE-V reloc record encoding (raw BTF reuse vs. dedicated
-  section).
+  section). The GCC path of `<merlin/core.h>` ships a placeholder
+  pending `design-corev-spec`.
 - Decide skeleton ABI (drop-in pattern matching libbpf's, or distinct?).
 - Decide whether `libmerlin` taps `libbpf` for shared map APIs.
+- Helper IDs are now pinned in [`uapi/merlin/helpers.h`](uapi/merlin/helpers.h)
+  with the allocation policy described in
+  [`uapi/merlin/README.md`](uapi/merlin/README.md). The verifier
+  rejects helper IDs `>= 0x1000` because they would not fit the
+  12-bit immediate of `li a7, ID`, which would break the loader's
+  8-byte rewrite invariant (see
+  [02-isa-and-bytecode.md](02-isa-and-bytecode.md) §6.4).
