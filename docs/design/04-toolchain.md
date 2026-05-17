@@ -181,9 +181,14 @@ re-implementing a disassembler.
   Clang has a built-in that GCC lacks (`__builtin_preserve_access_index`
   for CO-RE-V). The header layout and the canonical helper-ID
   allocation are in [`uapi/merlin/`](uapi/merlin/README.md).
-- Decide CO-RE-V reloc record encoding (raw BTF reuse vs. dedicated
-  section). The GCC path of `<merlin/core.h>` ships a placeholder
-  pending `design-corev-spec`.
+- ~~Decide CO-RE-V reloc record encoding (raw BTF reuse vs. dedicated
+  section).~~ **Decided in [`12-core-v-spec.md`](12-core-v-spec.md):**
+  `.merlin.btf` reuses upstream BTF unchanged; CO-RE-V records live
+  in a new `.merlin.btf_ext` side table paired with
+  `R_MERLIN_CORE_*` records in `.merlin.relocs`. The GCC path of
+  `<merlin/core.h>` emits an objtool marker in
+  `.merlin.core_v_pending` which `merlin-objtool` post-processes into
+  the canonical relocs and removes from the output.
 - Decide skeleton ABI (drop-in pattern matching libbpf's, or distinct?).
 - Decide whether `libmerlin` taps `libbpf` for shared map APIs.
 - Helper IDs are now pinned in [`uapi/merlin/helpers.h`](uapi/merlin/helpers.h)

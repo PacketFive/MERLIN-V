@@ -93,24 +93,54 @@ enum merlin_core_access_kind {
 
 #else /* !__clang__ - GCC path */
 
-/* GCC equivalent: the compiler does not natively emit CO-RE relocations.
- * We provide a placeholder that produces the same source-level
- * semantics; the objtool/loader pipeline scans for these and produces
- * the relocation records.  See docs/design/04-toolchain.md §6.
+/*
+ * GCC equivalent.  GCC does not have __builtin_preserve_access_index;
+ * the MERLIN-V GCC path uses an objtool-marker section described in
+ * docs/design/12-core-v-spec.md §6:
  *
- * The mechanism uses a "tag" attribute on a wrapper function; off-target
- * builds drop the tag silently.
+ *   1. The natural C access expression compiles normally - GCC emits
+ *      the lw/ld/addi against the local-BTF offset.
+ *   2. A static const string in .merlin.core_v_pending names the
+ *      access symbolically; merlin-objtool post-processes the section
+ *      and emits real R_MERLIN_CORE_* records in .merlin.relocs +
+ *      paired records in .merlin.btf_ext, then deletes the pending
+ *      section from the output object.
+ *
+ * The marker format is "<kind>:<placeholder>:<access_chain>:<kind_name>".
+ * The objtool pass resolves placeholders (it has BTF and DWARF
+ * available; the C source-level macros only know the access chain
+ * lexically, not the stem type name).
+ *
+ * For uniqueness across translation units the marker uses
+ * __COUNTER__; objtool finds the marker by walking the section in
+ * file-emission order and pairs it with the next access instruction.
  */
+
+#define _MERLIN_CONCAT2(a, b) a##b
+#define _MERLIN_CONCAT(a, b)  _MERLIN_CONCAT2(a, b)
+#define _MERLIN_CORE_MARKER_UNIQ() _MERLIN_CONCAT(__merlin_core_marker_, __COUNTER__)
+
+#define _MERLIN_CORE_EMIT_MARKER(s)                                           \
+	do {                                                                  \
+		static const char _MERLIN_CONCAT(__merlin_core_marker_,       \
+						 __LINE__)[]                  \
+			__attribute__((section(".merlin.core_v_pending"),     \
+				       used)) = s;                            \
+		__asm__ __volatile__("# merlin-core-marker %0"                \
+			: : "i"(&_MERLIN_CONCAT(__merlin_core_marker_,        \
+						__LINE__)));                  \
+	} while (0)
 
 #define MERLIN_CORE_READ(dst, src)                                            \
 	do {                                                                  \
+		_MERLIN_CORE_EMIT_MARKER("F:?:0:BYTE_OFFSET");                \
 		__builtin_memcpy(&(dst), &(src), sizeof(dst));                \
 	} while (0)
 
 #define MERLIN_CORE_READ_INTO(dst, src, fields...)                            \
 	MERLIN_CORE_READ(dst, src.fields)
 
-#define MERLIN_CORE_FIELD_OFFSET(field) \
+#define MERLIN_CORE_FIELD_OFFSET(field)                                       \
 	((__u32)((char *)&(field) - (char *)0))
 
 #define MERLIN_CORE_FIELD_EXISTS(field)  (1u)

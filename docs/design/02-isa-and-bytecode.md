@@ -500,14 +500,32 @@ Semantics match libbpf's CO-RE relocation handling; see
 the same resolution logic, against `.merlin.btf` and the running
 kernel's BTF.
 
+The full CO-RE-V encoding — `.merlin.btf_ext` section layout,
+the paired `core_relo_v1` records, access-string format, and
+the GCC-side objtool marker — is specified in
+[`12-core-v-spec.md`](12-core-v-spec.md). The `r_extra1` field
+of `R_MERLIN_CORE_*` records is the byte offset into
+`.merlin.btf_ext`'s `core_relo_info` table identifying the
+paired record.
+
 ### 8.7 `.merlin.btf`
 
-MERLIN BTF type information. The on-disk format is BTF (per
-`bpf-next/Documentation/bpf/btf.rst`) with the project-specific
-extensions defined in [04-toolchain.md](04-toolchain.md) §3.
-Endianness and alignment rules in §8.2 apply. This section is
-referenced by `key_btf_id` and `value_btf_id` in
-`.merlin.maps` records and by `r_sym` in CO-RE relocs.
+MERLIN BTF type information. The on-disk format is **upstream BTF
+unchanged** (`bpf-next/Documentation/bpf/btf.rst`); MERLIN-V adds
+no new BTF kinds in RFC v1. See
+[`12-core-v-spec.md`](12-core-v-spec.md) §3 for the rationale and
+[`04-toolchain.md`](04-toolchain.md) §3 for how the toolchain
+emits it. Endianness and alignment rules in §8.2 apply. This
+section is referenced by `key_btf_id` and `value_btf_id` in
+`.merlin.maps` records and by `core_relo_v1.type_id` records in
+`.merlin.btf_ext`.
+
+### 8.7a `.merlin.btf_ext`
+
+Side table holding CO-RE-V `core_relo_info` records (paired
+with `R_MERLIN_CORE_*` entries in `.merlin.relocs`) and the
+access-string table they reference. Full layout in
+[`12-core-v-spec.md`](12-core-v-spec.md) §4.
 
 ### 8.8 Sample loader pseudocode
 

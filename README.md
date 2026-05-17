@@ -33,7 +33,11 @@ UAPI headers and user-space libraries (`libmerlin`).
 ├── docs/
 │   ├── AI/                # AI agent contribution policy (Linux Kernel AI Policy)
 │   ├── design/            # MERLIN-V design documents (RFC + paper source material)
+│   │   └── uapi/          # Draft kernel UAPI + program-side headers
 │   └── academics/         # Advanced-OS-design training course (12 labs + syllabus)
+├── tools/
+│   ├── merlin-objtool/    # User-space ELF tool (the first MERLIN-V code prototype)
+│   └── merlin-verifier/   # User-space abstract-interpretation verifier
 ├── net-next/              # submodule: cutting-edge Linux networking tree (reference only)
 ├── bpf-next/              # submodule: BPF subsystem tree (reference only; eBPF/XDP/AF_XDP/…)
 ├── LICENSE

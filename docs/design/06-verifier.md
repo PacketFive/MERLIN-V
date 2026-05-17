@@ -1,8 +1,8 @@
 # 06 — Verifier Strategy
 
-Status: sharing strategy pinned (Option B for v1); profile catalogue aligned
+Status: sharing strategy pinned (Option B for v1); profile catalogue aligned; **user-space prototype landed (tools/merlin-verifier/, see §9)**
 Owner: PacketFive
-Last reviewed: post profile + ABI decisions
+Last reviewed: post profile + ABI decisions + first prototype
 
 The verifier is *the* load-bearing safety component. This document
 records the strategy for verifying programs whose ISA is a general
@@ -343,6 +343,42 @@ space.
 - Decide whether the optional `user-mode/sandbox` profile lives in
   this project or in a sibling project; the answer affects whether
   the verifier ships in a usable user-space form.
+
+## 9. v0 user-space prototype
+
+A user-space prototype exists under
+[`../../tools/merlin-verifier/`](../../tools/merlin-verifier/).
+It is the iteration vehicle for the verifier design; the kernel
+verifier (Option B per §4) will be a port of the same algorithm.
+
+### Implemented in v0
+
+| Property (§2 number) | Status |
+| -------------------- | ------ |
+| 1. profile compliance (forbidden classes) | ✅ implemented; rejects CSR / privileged / `ebreak` / `fence.i` / FP |
+| 5. helper ABI compliance                  | ✅ implemented; requires `addi a7, x0, K` immediately preceding every `ecall`; verifies K against per-program-type allowlist |
+| 4. pointer provenance                     | ✅ partial; load/store base must be `PTR_CTX` / `PTR_STACK` / `PTR_HELPER_RET` (not `UNKNOWN` / `CONST`) |
+| 2. control flow (back-edges)              | ✅ partial; rejects all back-edges (loops are a Phase-2 todo gated by `merlin_loop()`) |
+| 2. control flow (indirect `jalr`)         | ✅ partial; `jalr` via `ra` (the return pattern) is accepted; everything else is rejected pending kfunc-slot resolution |
+
+### Not in v0 (Phase 2 work)
+
+| Property (§2 number) | Status |
+| -------------------- | ------ |
+| 3. stack discipline                       | not implemented (sp delta tracking todo) |
+| 6. termination bound via `merlin_loop()`  | not implemented (loops universally rejected) |
+| 7. no FP                                  | implemented as part of property 1 |
+| 8. memory-model use (atomics + fences)    | not implemented |
+| CFG / join points / widening              | not implemented; v0 is a single linear pass |
+| tnum / range tracking                     | replaced by a coarse `CONST | UNKNOWN | PTR_*` lattice |
+| CO-RE-V effect modeling                   | not implemented; verifier sees pre-resolution offsets |
+
+### Test battery as executable spec
+
+`tools/merlin-verifier/bad-progs/run.sh` is the executable spec for
+v0 accept/reject semantics. Ten cases (three accept, seven reject)
+cover the rules above. Future loosening or tightening of the
+verifier updates the battery in lock-step.
 
 The following previously-open items are now **decided** (recorded
 here for traceability):

@@ -1,0 +1,5 @@
+# Build artefacts
+merlin-verifier
+*.o
+bad-progs/mkfixture
+bad-progs/case_*.o

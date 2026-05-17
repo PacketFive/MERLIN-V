@@ -33,6 +33,7 @@ the source material for:
 | 09 | [`09-mvcp-kernel-uapi.md`](09-mvcp-kernel-uapi.md) — MVCP layer A: in-kernel control-plane primitives | draft |
 | 10 | [`10-mvcp-daemon-and-fleet.md`](10-mvcp-daemon-and-fleet.md) — MVCP layer B: `merlind` reference daemon and fleet semantics | draft |
 | 11 | [`11-mvcp-attestation.md`](11-mvcp-attestation.md) — MVCP attestation protocol and HW chain | draft |
+| 12 | [`12-core-v-spec.md`](12-core-v-spec.md) — CO-RE-V relocation and `.merlin.btf_ext` spec | draft |
 
 For the course/training-material companion to these design docs, see
 [`../academics/`](../academics/README.md).
