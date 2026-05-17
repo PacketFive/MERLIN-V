@@ -1,0 +1,4 @@
+# Build artefacts
+merlin-jit
+*.o
+test_*.o

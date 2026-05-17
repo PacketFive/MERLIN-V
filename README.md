@@ -37,7 +37,9 @@ UAPI headers and user-space libraries (`libmerlin`).
 │   └── academics/         # Advanced-OS-design training course (12 labs + syllabus)
 ├── tools/
 │   ├── merlin-objtool/    # User-space ELF tool (the first MERLIN-V code prototype)
-│   └── merlin-verifier/   # User-space abstract-interpretation verifier
+│   ├── merlin-verifier/   # User-space abstract-interpretation verifier
+│   ├── merlin-jit-x86_64/ # User-space RV64 -> x86_64 host JIT
+│   └── merlin-sign/       # MVCP signed-program tool (ed25519 sign/verify)
 ├── net-next/              # submodule: cutting-edge Linux networking tree (reference only)
 ├── bpf-next/              # submodule: BPF subsystem tree (reference only; eBPF/XDP/AF_XDP/…)
 ├── LICENSE

@@ -1,8 +1,8 @@
 # 07 — JIT and Hardware Offload
 
-Status: starter
+Status: starter; **x86_64 host JIT prototype landed (tools/merlin-jit-x86_64/, see §8)**
 Owner: PacketFive
-Last reviewed: initial draft
+Last reviewed: initial draft + first host JIT prototype
 
 This document describes how a verified MERLIN-V image becomes executable
 code on (a) RISC-V hosts and accelerators and (b) non-RISC-V hosts.
@@ -176,3 +176,72 @@ path, just on a much smaller runtime.
   (mailbox layout, command set).
 - Decide the policy on linker relaxation across the pass-through
   reloc patches.
+
+## 8. v0 x86_64 host JIT prototype
+
+A working user-space prototype lives under
+[`../../tools/merlin-jit-x86_64/`](../../tools/merlin-jit-x86_64/).
+It is the iteration vehicle for the §3 host JIT design; the in-kernel
+JIT under `kernel/merlin/jit/arch/x86_64.c` will be a port of the
+same algorithm.
+
+### v0 strategy: spill-everything
+
+The prototype skips register allocation entirely:
+
+- All 32 RV registers live in a `uint64_t regs[32]` array on the
+  JIT'd function's stack frame.
+- `rbx` is pinned to point at `&regs[0]` for the function's
+  lifetime (callee-saved per SysV ABI).
+- Each RV instruction becomes "load operands from `regs[]`, do
+  the op on `rax`/`rcx`, store back to `regs[]`".  Typical cost:
+  4–8 x86 instructions per RV instruction.
+
+This is intentionally slow but transparent — every RV register
+access shows up at a fixed `[rbx+N*8]` displacement in the host
+binary, making the emitted code easy to read.  Real register
+allocation (pin frequently-accessed virtuals to `r12`–`r15` plus
+`rbp`, spill the rest) is Phase 2 work.
+
+### Helper-call convention
+
+The prototype's `ecall` translation:
+
+```
+mov  rdi, rbx                       ; rdi = &regs[0]
+mov  rax, <trampoline-fn-pointer>   ; absolute 64-bit address
+call rax
+```
+
+The C trampoline reads `a7 = regs[17]`, dispatches on the helper
+id, calls the helper with `a0..a5 = regs[10..15]`, and writes the
+return value back to `regs[10]`.  Stub helpers in
+`helpers.c` return recognisable sentinel values per ID; real
+helper bodies will land in `kernel/merlin/helpers.c` when the
+in-tree work begins.
+
+### Instruction support in v0
+
+Implemented: `addi` (add only), `lui`, `add`/`sub`/`or`/`and`/`xor`
+(reg-reg), `mul`, `slli`/`srli`/`srai`, `ecall`, `jalr ra` (=
+return), `fence` (no-op).  This is sufficient to JIT every
+positive-test fixture the verifier accepts plus a handful of
+arithmetic patterns.
+
+Not yet implemented (Phase 2; mechanical to add): the rest of the
+I-form ALU ops, all loads and stores, branches, `jal` non-return
+form, RV64I word-form arithmetic (`addw`/`subw`/`sllw`/`srlw`/
+`sraw`), division.
+
+### End-to-end pipeline proof
+
+The tool chain works end-to-end on the dev host:
+
+```
+.merlin.o  ->  merlin-objtool validate  ->  merlin-verifier  ->
+   merlin-jit  ->  mmap PROT_EXEC  ->  call  ->  return value
+```
+
+The test battery (6 cases) asserts exact return values and helper-
+call counts.  All six pass; see `tools/merlin-jit-x86_64/run-tests.sh`
+for the executable spec.

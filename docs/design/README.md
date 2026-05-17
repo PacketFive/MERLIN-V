@@ -28,7 +28,7 @@ the source material for:
 | 04 | [`04-toolchain.md`](04-toolchain.md) — GCC vs LLVM, libmerlin, MERLIN BTF, CO-RE-V | draft |
 | 05 | [`05-reference-platforms.md`](05-reference-platforms.md) — Icicle Kit, ESP32-C3, Zephyr | starter |
 | 06 | [`06-verifier.md`](06-verifier.md) — verifier strategy on a permissive ISA | starter |
-| 07 | [`07-jit-and-offload.md`](07-jit-and-offload.md) — host JIT, NIC/accel offload | starter |
+| 07 | [`07-jit-and-offload.md`](07-jit-and-offload.md) — host JIT, NIC/accel offload | draft |
 | 08 | [`08-mvdp-and-af-mvdp.md`](08-mvdp-and-af-mvdp.md) — MVDP program type and AF\_MVDP socket family (unified socket model) | draft |
 | 09 | [`09-mvcp-kernel-uapi.md`](09-mvcp-kernel-uapi.md) — MVCP layer A: in-kernel control-plane primitives | draft |
 | 10 | [`10-mvcp-daemon-and-fleet.md`](10-mvcp-daemon-and-fleet.md) — MVCP layer B: `merlind` reference daemon and fleet semantics | draft |

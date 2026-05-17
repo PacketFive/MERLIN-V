@@ -1,7 +1,8 @@
 # 09 — MVCP Layer A: in-kernel UAPI primitives
 
 *Status: draft. The user-visible API surface for MVCP — the control
-plane primitives MERLIN-V ships as kernel UAPI.*
+plane primitives MERLIN-V ships as kernel UAPI.  **User-space
+prototype of signed programs landed (tools/merlin-sign/, see §3.1).***
 
 ## 1. What MVCP is
 
@@ -73,10 +74,35 @@ enum merlin_sig_algo {
 ```
 
 The signed region covers `.merlin.meta`, `.text*`, `.merlin.maps`,
-`.merlin.relocs`, `.merlin.btf`, `.merlin.license` — every section
-that affects program semantics. The signature itself, ELF section
-header tables, and `.shstrtab` are excluded by virtue of being
-outside `[signed_blob_off, signed_blob_off + signed_blob_len)`.
+`.merlin.relocs`, `.merlin.btf`, `.merlin.btf_ext`,
+`.merlin.license` — every section that affects program
+semantics. The signature itself, ELF section header tables, and
+`.shstrtab` are excluded.
+
+These sections are typically *not* contiguous in the on-disk
+ELF (section headers and `.shstrtab` fall between them), so the
+hashed input is the **canonical concatenation** of the section
+*data*, in this fixed order:
+
+```
+.merlin.meta, .merlin.maps, .merlin.relocs,
+.merlin.btf, .merlin.btf_ext, .merlin.license,
+then every .text.merlin.* in section-header-table order.
+```
+
+The `signed_blob_off` and `signed_blob_len` fields of
+`struct merlin_sig_v1` are interpreted under this scheme as:
+
+- `signed_blob_off == 0` — *canonical-section-list mode*. The
+  signed input is the canonical concatenation defined above.
+  `signed_blob_len` records the total byte length of that
+  concatenation (a useful cross-check at verification time).
+- `signed_blob_off != 0` — *single-region mode* (reserved for
+  future use, e.g. out-of-line attestation blobs).
+
+RFC v1 implementations emit and accept only the canonical-list
+mode. The prototype tool is `tools/merlin-sign/`; the digest it
+computes is identical to `merlin-objtool sha256`.
 
 #### 3.1.2 Keyring binding
 

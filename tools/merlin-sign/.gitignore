@@ -1,0 +1,7 @@
+# Build artefacts
+merlin-sign
+*.o
+test_*.o
+test_*.signed.o
+test_*.pem
+test_*.tampered.o
