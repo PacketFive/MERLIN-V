@@ -1,0 +1,21 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Devicetree overlay for the ESP32-C3-DevKitM-1.
+ *
+ * Default board overlay is sufficient for MERLIN-V bring-up; we keep
+ * this file for future MERLIN-V-specific aliases (e.g. a dedicated
+ * UART for module-loading, a GPIO for hot-reload trigger, etc.).
+ */
+
+/ {
+	chosen {
+		zephyr,console = &uart0;
+		zephyr,shell-uart = &uart0;
+	};
+};
+
+&uart0 {
+	status = "okay";
+	current-speed = <115200>;
+};

@@ -34,6 +34,7 @@ the source material for:
 | 10 | [`10-mvcp-daemon-and-fleet.md`](10-mvcp-daemon-and-fleet.md) — MVCP layer B: `merlind` reference daemon and fleet semantics | draft |
 | 11 | [`11-mvcp-attestation.md`](11-mvcp-attestation.md) — MVCP attestation protocol and HW chain | draft |
 | 12 | [`12-core-v-spec.md`](12-core-v-spec.md) — CO-RE-V relocation and `.merlin.btf_ext` spec | draft |
+| 13 | [`13-evaluation-plan.md`](13-evaluation-plan.md) — RFC v1 evaluation plan: workloads, environments, pass/fail criteria | starter |
 
 For the course/training-material companion to these design docs, see
 [`../academics/`](../academics/README.md).
