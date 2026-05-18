@@ -54,5 +54,10 @@ dkms.conf
 # debug information files
 *.dwo
 
-# Local-only AI agent handoff notes (not for upstream)
+# Local-only AI agent docs (entire directory is internal)
+docs/AI/
 docs/AI/COMMIT_WORKFLOW.md
+docs/AI/AGENT_INSTRUCTIONS.md
+
+# Local-only RFC cover letter draft (not for upstream until ready)
+docs/rfc/cover-letter.md
