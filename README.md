@@ -42,7 +42,8 @@ UAPI headers and user-space libraries (`libmerlin`).
 │   ├── merlin-sign/       # MVCP signed-program tool (ed25519 sign/verify)
 │   ├── merlin-telemetry/  # MVCP standard telemetry export (dispatch shim)
 │   ├── merlin-attest/     # MVCP load attestation (MAK + quote)
-│   └── merlin-ns/         # MVCP program namespaces (scope + inheritance)
+│   ├── merlin-ns/         # MVCP program namespaces (scope + inheritance)
+│   └── merlin-txn/        # MVCP atomic map-batch transactions
 ├── net-next/              # submodule: cutting-edge Linux networking tree (reference only)
 ├── bpf-next/              # submodule: BPF subsystem tree (reference only; eBPF/XDP/AF_XDP/…)
 ├── LICENSE

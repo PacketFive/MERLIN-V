@@ -1,11 +1,11 @@
 # 09 — MVCP Layer A: in-kernel UAPI primitives
 
-*Status: draft. The user-visible API surface for MVCP — the control
-plane primitives MERLIN-V ships as kernel UAPI.  **User-space
-prototypes landed: signed programs (tools/merlin-sign/, §3.1),
-standard telemetry (tools/merlin-telemetry/, §3.5), and program
-namespaces (tools/merlin-ns/, §3.4) — all under
-`uapi/merlin/*.h` canonical headers.***
+*Status: draft. The user-visible API surface for MVCP. **All
+user-space-testable layer-A prototypes landed**: signed programs
+(§3.1, tools/merlin-sign/), attestation (§3.2,
+tools/merlin-attest/), batch transactions (§3.3,
+tools/merlin-txn/), namespaces (§3.4, tools/merlin-ns/), and
+telemetry (§3.5, tools/merlin-telemetry/).***
 
 ## 1. What MVCP is
 

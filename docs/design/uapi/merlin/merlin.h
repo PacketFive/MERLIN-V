@@ -40,6 +40,7 @@
 #include <merlin/stats.h>
 #include <merlin/attestation.h>
 #include <merlin/namespace.h>
+#include <merlin/txn.h>
 
 /*
  * Profile constants - mirror enum merlin_profile in <linux/merlin.h>.

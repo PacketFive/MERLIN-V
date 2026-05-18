@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# MERLIN-V: in-kernel JIT VM with RISC-V bytecode.
+# kernel/merlin/Kconfig
+
+config MERLIN
+	tristate "MERLIN-V in-kernel JIT VM"
+	depends on NET
+	select ANON_INODES
+	select PERF_EVENTS
+	help
+	  MERLIN-V is an in-kernel JIT virtual machine whose bytecode is a
+	  restricted profile of the RISC-V ISA.  On RISC-V hosts the verified
+	  image runs pass-through; on other hosts it is JIT-compiled to the
+	  native ISA.  The design motivation and architecture are documented in
+	  docs/design/.
+
+	  If unsure, say N.
+
+config MERLIN_JIT_X86_64
+	bool "MERLIN-V x86_64 host JIT"
+	depends on MERLIN && X86_64
+	default MERLIN
+	help
+	  Enables the x86_64 host JIT for MERLIN-V programs.  Without this,
+	  MERLIN-V programs cannot be loaded on x86_64 (verification passes
+	  but execution is rejected).
+
+config MERLIN_JIT_RISCV
+	bool "MERLIN-V RISC-V pass-through JIT"
+	depends on MERLIN && RISCV
+	default MERLIN
+	help
+	  Enables the RISC-V pass-through path.  On RISC-V, verified programs
+	  run as native machine code with only relocation patching and I-cache
+	  flush.  This is the zero-translation 1:1 path.
+
+config MERLIN_SELFTEST
+	bool "MERLIN-V built-in self-tests"
+	depends on MERLIN
+	help
+	  Compile kernel self-tests for MERLIN-V.  Tests run at module load
+	  and report to dmesg.  Useful for CI.
+
+	  If unsure, say N.

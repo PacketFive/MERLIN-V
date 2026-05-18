@@ -1,0 +1,4 @@
+# Build artefacts
+merlin-txn
+*.o
+test_*.txn
