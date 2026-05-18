@@ -1,0 +1,17 @@
+sample:
+  name: MERLIN-V Hello
+  description: Load and run a tiny MERLIN-V program on Zephyr/RISC-V.
+
+common:
+  tags: merlin
+  platform_allow:
+    - esp32c3_devkitm
+    - mpfs_icicle/polarfire/e51
+  harness: console
+  harness_config:
+    type: one_line
+    regex:
+      - "merlin: hello-merlin done"
+
+tests:
+  sample.merlin.hello: {}

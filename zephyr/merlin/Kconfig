@@ -1,0 +1,58 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Kconfig for the MERLIN-V Zephyr runtime.
+
+config MERLIN
+	bool "MERLIN-V in-kernel JIT VM (Zephyr runtime)"
+	default n
+	help
+	  Enable the MERLIN-V runtime for Zephyr.  Verified RISC-V bytecode
+	  is loaded at runtime and executed pass-through on RISC-V targets
+	  (rv32imc).  On non-RISC-V Zephyr targets execution is rejected.
+
+	  See docs/design/05-reference-platforms.md §6 for the strategic
+	  framing of MERLIN-V on Zephyr.
+
+if MERLIN
+
+config MERLIN_MAX_PROGS
+	int "Maximum simultaneously-loaded MERLIN-V programs"
+	default 4
+	range 1 32
+	help
+	  Static upper bound on loaded programs.  Each program occupies one
+	  slot in the prog table.  Memory is allocated up-front from the
+	  system heap on prog_load and freed on prog_unload.
+
+config MERLIN_MAX_PROG_BYTES
+	int "Maximum bytes of bytecode per program"
+	default 16384
+	range 256 65536
+	help
+	  Per-program text section cap, in bytes.  The default is the
+	  rtos-rv32 profile cap (16 KiB).
+
+config MERLIN_MAX_STACK_BYTES
+	int "Verifier max stack frame size (bytes)"
+	default 256
+	range 64 4096
+	help
+	  Maximum allowed stack frame size for a MERLIN-V program on this
+	  target.  The rtos-rv32 default is 256 bytes per
+	  docs/design/02-isa-and-bytecode.md.
+
+config MERLIN_LOG_LEVEL
+	int "Verifier log verbosity"
+	default 1
+	range 0 2
+	help
+	  0 = none, 1 = brief (one line per program), 2 = verbose.
+
+config MERLIN_SAMPLE_HELPERS
+	bool "Compile sample helper implementations"
+	default y
+	help
+	  Provide a small built-in helper set (printk, k_uptime_get, …)
+	  suitable for smoke testing on a board with a serial console.
+
+endif # MERLIN
