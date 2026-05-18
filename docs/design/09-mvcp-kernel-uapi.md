@@ -2,9 +2,10 @@
 
 *Status: draft. The user-visible API surface for MVCP — the control
 plane primitives MERLIN-V ships as kernel UAPI.  **User-space
-prototype of signed programs landed (tools/merlin-sign/, see §3.1);
-user-space prototype of standard telemetry landed
-(tools/merlin-telemetry/, see §3.5).***
+prototypes landed: signed programs (tools/merlin-sign/, §3.1),
+standard telemetry (tools/merlin-telemetry/, §3.5), and program
+namespaces (tools/merlin-ns/, §3.4) — all under
+`uapi/merlin/*.h` canonical headers.***
 
 ## 1. What MVCP is
 

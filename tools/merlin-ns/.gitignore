@@ -1,0 +1,4 @@
+# Build artefacts
+merlin-ns
+*.o
+test_*.ns

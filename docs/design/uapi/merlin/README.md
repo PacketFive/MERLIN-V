@@ -21,6 +21,7 @@ Eventual in-tree paths:
 | `merlin/core.h`            | `tools/lib/merlin/include/merlin/core.h` |
 | `merlin/stats.h`           | `tools/lib/merlin/include/merlin/stats.h` |
 | `merlin/attestation.h`     | `tools/lib/merlin/include/merlin/attestation.h` |
+| `merlin/namespace.h`       | `tools/lib/merlin/include/merlin/namespace.h` |
 | `merlin/mvdp.h`            | `tools/lib/merlin/include/merlin/mvdp.h` |
 | `merlin/merlin.h`          | `tools/lib/merlin/include/merlin/merlin.h` (umbrella) |
 
