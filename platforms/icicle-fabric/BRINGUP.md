@@ -1,0 +1,222 @@
+# MPFS Icicle Kit — Fabric Soft-Core Bring-up
+
+This is the procedure for taking an Icicle Kit from "Linux on U54
+runs MERLIN-V via `merlin.ko`" to "Linux on U54 hands a verified
+MERLIN-V image to an RV32 soft core in the PolarFire fabric, which
+executes it natively."
+
+---
+
+## 1. Prerequisites
+
+### Hardware
+- MPFS Icicle Kit + USB-UART cable + SD card (set up per
+  `platforms/icicle-linux/BRINGUP.md` first — this guide assumes
+  Linux is already booting and `merlin.ko` is already loadable).
+- Optional: a FlashPro / Embedded FlashPro probe for direct
+  bitstream loading.
+
+### Build host
+- **Microchip Libero SoC** (current version: 2024.x; free-tier
+  works for the MPFS250T-FCVG484EES on the Icicle Kit, but the
+  `MPFS_DISCOVERY_KIT` board file is needed).  Download from
+  Microchip; not in this repo.
+- **iverilog + verilator** (for simulation; pre-installable on any
+  Debian/Ubuntu/Fedora host).
+
+---
+
+## 2. Pick the soft core
+
+The `rtl/merlin_core.v` shipped here is a **simulation stub**.
+It runs in iverilog and lets you validate the data path, but it
+will not place-and-route in Libero (too many magic numbers; no
+real pipeline).
+
+Pick **one** real soft core and wrap it to match the imem/dmem
+port interface in `merlin_core.v`:
+
+### Option A — VexRiscv (recommended)
+
+```bash
+# Generate the Verilog from VexRiscv's Scala source.
+git clone https://github.com/SpinalHDL/VexRiscv
+cd VexRiscv
+sbt "runMain vexriscv.demo.GenSmallest"
+# Produces VexRiscv.v in cwd.  ~3000 LUTs on PolarFire.
+```
+
+Then in `rtl/merlin_core.v`, replace the stub body with an
+instance of `VexRiscv`, mapping its `iBus_cmd`/`iBus_rsp` to the
+`imem_*` ports here, and `dBus_cmd`/`dBus_rsp` to `dmem_*`.
+
+### Option B — PicoRV32
+
+```bash
+# Single-file Verilog; just clone and use picorv32.v.
+git clone https://github.com/YosysHQ/picorv32
+```
+
+PicoRV32 has a unified memory bus.  Multiplex between IMEM and
+DMEM based on the `mem_instr` flag.  ~750 LUTs; simpler than
+VexRiscv but slower (multi-cycle per insn).
+
+### Option C — Microchip MiV (vendor IP)
+
+Available through Libero's IP Catalogue (free for the Icicle
+Kit's chip).  Easiest to drop into SmartDesign; least open.
+
+---
+
+## 3. iverilog smoke (verify the data path)
+
+Before touching Libero, confirm the RTL works with the stub core:
+
+```bash
+cd tb
+make
+```
+
+Expected:
+
+```
+[tb] ETH/IPv4: exit=2 (PASS, expected 2, cycles=5)
+[tb] ETH/RARP: exit=1 (PASS, expected 1, cycles=4)
+[tb] all good
+```
+
+This validates:
+- AXI-Lite slave handshakes (one-cycle aw+w fire; bvalid 1 cycle later).
+- IMEM upload via auto-incrementing `IMEM_WSEL`.
+- DMEM upload via auto-incrementing `DMEM_WSEL`.
+- Core boots from address 0 on `CTRL = 0x1`.
+- Core halts on `jalr x0, ra, 0` and latches `a0` into `EXIT`.
+
+---
+
+## 4. Synthesise with Libero
+
+```bash
+cd libero
+/opt/microchip/Libero_SoC/bin/libero SCRIPT:build.tcl
+```
+
+This creates a project in `build/libero/`, runs synth + P&R +
+bitgen.  Output: `build/libero/designer/merlin_fabric/merlin_fabric.bit`.
+
+For the MSS-to-fabric AXI wiring (which is interactive in
+SmartDesign, not TCL), see `libero/README.md`.
+
+Target slack at 150 MHz: positive across all paths.  The
+single-cycle ALU paths and the BRAM-fed memories are
+comfortable at this frequency on the Icicle's speed grade.
+
+---
+
+## 5. Program the FPGA
+
+Boot the Icicle Linux first (per `platforms/icicle-linux/BRINGUP.md`),
+then over JTAG or over the in-system programming USB path:
+
+```bash
+# Using the Microchip command-line programmer:
+mpfsBootmodeProgrammer \
+    --bitstream merlin_fabric.bit \
+    --device   PolarFireSoC \
+    --target   icicle-kit
+```
+
+Alternative: copy the `.bit` file onto the SD card and use the
+HSS payload-update path to reprogram the FPGA design slot at boot.
+
+---
+
+## 6. Wire up the kernel-side device
+
+Add a node to the Icicle's devicetree (`mpfs-icicle-kit.dts` or
+similar) so the AXI-Lite slave appears at a known address and
+the UIO driver attaches:
+
+```
+&fic0 {
+    merlin_fabric: merlin-fabric@40000000 {
+        compatible = "generic-uio";
+        reg        = <0x4000_0000 0x1000>;
+        status     = "okay";
+    };
+};
+```
+
+Rebuild + install the dtb; reboot.  After boot, `/dev/uio0` should
+appear.
+
+---
+
+## 7. End-to-end demo
+
+```bash
+# Extract the .text bytes from a verified .merlin.o:
+riscv64-unknown-linux-gnu-objcopy -O binary \
+    --only-section=.text.merlin.filter.classifier \
+    classifier.merlin.o classifier.text.bin
+
+# Run the userland loader:
+cd host
+make
+sudo ./merlin-fabric-load classifier.text.bin
+```
+
+Expected:
+
+```
+fabric-load: opened /dev/uio0, text=28 bytes
+fabric-load: ETH/IPv4 -> 2  (PASS)
+fabric-load: ETH/RARP -> 1  (DROP)
+```
+
+---
+
+## 8. What success looks like
+
+The Icicle is "MERLIN-V fabric capable" when:
+
+- [ ] iverilog testbench passes against the stub
+- [ ] Bitstream synthesises with a real soft core (VexRiscv / PicoRV32 / MiV)
+- [ ] FPGA is programmed; `/dev/uio0` appears in Linux
+- [ ] The end-to-end loader returns 2 for IPv4, 1 for RARP
+- [ ] `dmesg` shows the AXI-Lite slave registered correctly
+
+This is the strongest demonstration of the MERLIN-V thesis: the
+same `.text` bytes that ran natively on the U54 cores
+(`platforms/icicle-linux/`) and on Zephyr/ESP32-C3
+(`platforms/esp32c3/`) now run natively on **the student's own
+soft core** — on the same die as the host CPU, with the host
+CPU acting as the verifier-trusted loader.
+
+---
+
+## 9. Troubleshooting
+
+### iverilog testbench hangs
+
+Most likely a re-introduced race in the AXI-Lite slave.  The
+slave assumes one-cycle handshake (aw + w fire together; b 1
+cycle later); the testbench task `axi_write` matches this.  If
+you replace the slave with a Xilinx/Vivado-style multi-cycle
+slave, update `axi_write` to match.
+
+### Synthesis fails on inferred BRAM
+
+PolarFire LSRAM is single-port + registered output.  Both
+`merlin_imem.v` and `merlin_dmem.v` write that way.  If the tool
+fails to infer LSRAM, check `BRAM` and `RAM_BLOCK` attributes in
+the Libero log and tag the `mem` array explicitly with
+`(* ram_style = "block" *)`.
+
+### Soft core won't fit
+
+Drop the FPU (it's not in any rtos-rv32 MERLIN-V profile).
+PicoRV32 fits easily (~750 LUTs) at the cost of multi-cycle
+execution.  If even that doesn't fit, the issue is unlikely the
+core itself — check that the `MPFS250T_FCVG484` device file is
+in use (smaller die variants exist).

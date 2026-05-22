@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+#
+# libero/constraints/pinmap.pdc — PolarFire SoC pin assignments.
+#
+# This is a PLACEHOLDER constraint file.  The actual pin mapping
+# for the MPFS Icicle Kit's FIC0 / FIC1 AXI-Lite slave port is
+# **not** an FPGA pin assignment — the AXI-Lite signals are
+# connected internally through the MSS-to-fabric bridge.  Real
+# Libero projects use the Microchip "MSS Configurator" to wire up
+# those signals, not a .pdc file.
+#
+# What goes here:
+#   * clock input pin (if the design uses an external clock instead
+#     of a clock that comes through the MSS bridge)
+#   * any GPIO pins exposed to the outside world (debug LEDs,
+#     trigger outputs, etc.)
+#
+# Replace the placeholders below with real PolarFire pin numbers
+# from the Icicle Kit reference manual.
+
+# -- Reference clock (50 MHz from on-board oscillator) -------------
+# set_io  -port_name clk_50m  -pin_name AC18  -fixed yes
+# set_io  -port_name rst_n    -pin_name AA22  -fixed yes
+
+# -- Optional: route core_running + core_halted to 2 user LEDs -----
+# set_io  -port_name dbg_running   -pin_name H21  -fixed yes
+# set_io  -port_name dbg_halted    -pin_name G21  -fixed yes
