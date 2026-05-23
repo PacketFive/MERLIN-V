@@ -1,0 +1,153 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+#
+# .github/workflows/autograde-reusable.yml
+#
+# Reusable workflow so student forks can grade themselves against the
+# institution's canonical instructor files without copying the full
+# workflow body.  Students add a one-line workflow in their fork:
+#
+#   # .github/workflows/grade.yml
+#   name: grade
+#   on:
+#     push: { paths: ['docs/academics/labs/**'] }
+#     workflow_dispatch:
+#   jobs:
+#     grade:
+#       uses: PacketFive/MERLIN-V/.github/workflows/autograde-reusable.yml@main
+#       with:
+#         instructor_repo: PacketFive/MERLIN-V
+#         instructor_ref:  semester-2026
+#
+# That fork's pushes are then graded against semester-2026 every time.
+
+name: autograde-reusable
+
+on:
+  workflow_call:
+    inputs:
+      instructor_repo:
+        description: "owner/repo of the canonical instructor tree"
+        required: false
+        type:     string
+        default:  "PacketFive/MERLIN-V"
+      instructor_ref:
+        description: "Branch or tag of the canonical instructor tree"
+        required: false
+        type:     string
+        default:  "main"
+      labs:
+        description: "Space-separated lab IDs to grade (empty = autodetect)"
+        required: false
+        type:     string
+        default:  ""
+      hard_gate:
+        description: "Fail the workflow when any lab scores < 60"
+        required: false
+        type:     boolean
+        default:  false
+
+permissions:
+  contents:       read
+  pull-requests:  write
+  issues:         write
+
+jobs:
+  autograde:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path:        student
+          fetch-depth: 0
+
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.instructor_repo }}
+          ref:        ${{ inputs.instructor_ref }}
+          path:       instructor
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -q --no-install-recommends \
+              build-essential gcc make python3
+
+      - name: Detect changed labs
+        id: changed
+        run: |
+          set -e
+          cd student
+          if [ -n "${{ inputs.labs }}" ]; then
+              labs="${{ inputs.labs }}"
+          else
+              labs=$(./docs/academics/labs/autograder/ci/changed-labs.sh \
+                     "origin/${{ github.base_ref || 'main' }}")
+          fi
+          if [ -z "$labs" ]; then
+              echo "labs=" >> "$GITHUB_OUTPUT"
+              exit 0
+          fi
+          labs_oneline=$(echo "$labs" | tr '\n' ' ')
+          echo "labs=$labs_oneline" >> "$GITHUB_OUTPUT"
+
+      - name: Overlay instructor files
+        if: steps.changed.outputs.labs != ''
+        run: |
+          set -e
+          cd student
+          for lab in ${{ steps.changed.outputs.labs }}; do
+              ./docs/academics/labs/autograder/ci/instructor-overlay.sh \
+                  "$lab" "$GITHUB_WORKSPACE/instructor"
+          done
+
+      - name: Run autograder
+        if: steps.changed.outputs.labs != ''
+        id: grade
+        run: |
+          set +e
+          cd student
+          : > grades.jsonl
+          for lab in ${{ steps.changed.outputs.labs }}; do
+              echo "::group::Grading $lab"
+              ./docs/academics/labs/autograder/runner.sh "$lab" >> grades.jsonl
+              rc=$?
+              echo "::endgroup::"
+              if [ $rc -ne 0 ]; then echo "below_gate=1" >> "$GITHUB_OUTPUT"; fi
+          done
+          cat grades.jsonl
+
+      - name: Render Markdown summary
+        if: steps.changed.outputs.labs != ''
+        run: |
+          cd student
+          ./docs/academics/labs/autograder/ci/ci-comment.py \
+              grades.jsonl > grades.md
+          cat grades.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload grades artifact
+        if: steps.changed.outputs.labs != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: autograder-results-${{ github.run_id }}
+          path: |
+            student/grades.jsonl
+            student/grades.md
+          retention-days: 30
+
+      - name: Post PR comment
+        if: |
+          steps.changed.outputs.labs != '' &&
+          github.event_name == 'pull_request'
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          body-path:    student/grades.md
+          edit-mode:    replace
+
+      - name: Apply hard gate
+        if: inputs.hard_gate && steps.grade.outputs.below_gate == '1'
+        run: |
+          echo "::error::A lab scored below the 60% gate (hard_gate=true)."
+          exit 1

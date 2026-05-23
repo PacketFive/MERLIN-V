@@ -1,0 +1,145 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+#
+# azure-pipelines/autograde.yml
+#
+# Azure DevOps Pipelines equivalent of .github/workflows/autograde.yml.
+# Triggered on PR or push to a student branch; runs the autograder,
+# publishes a Markdown summary in the build log, attaches grades.jsonl
+# as a pipeline artifact, and (on PRs) posts a thread comment via the
+# Azure DevOps REST API.
+#
+# Configuration:
+#   - The pipeline expects a service connection named
+#     INSTRUCTOR_REPO_CONNECTION granting read access to the
+#     canonical instructor tree (a GitHub repo, an ADO repo, or any
+#     git server).  Override the URL below if not using GitHub.
+#
+#   - Set the variables INSTRUCTOR_REPO_URL and INSTRUCTOR_REF in the
+#     ADO pipeline's Variables tab (or the variable group attached
+#     to the pipeline).
+
+trigger:
+  branches:
+    include:
+      - "*"
+  paths:
+    include:
+      - "docs/academics/labs/**"
+
+pr:
+  branches:
+    include:
+      - "*"
+  paths:
+    include:
+      - "docs/academics/labs/**"
+
+pool:
+  vmImage: 'ubuntu-22.04'
+
+variables:
+  INSTRUCTOR_REPO_URL: $(INSTRUCTOR_REPO_URL)   # set via pipeline variables
+  INSTRUCTOR_REF:      $(INSTRUCTOR_REF)        # e.g. "main" or "semester-2026"
+
+steps:
+  - checkout: self
+    path: s/student
+    fetchDepth: 0
+
+  - script: |
+      set -e
+      cd "$AGENT_BUILDDIRECTORY"
+      git clone --depth 1 --branch "$INSTRUCTOR_REF" \
+          "$INSTRUCTOR_REPO_URL" instructor
+    displayName: 'Checkout instructor canonical tree'
+
+  - script: |
+      sudo apt-get update -qq
+      sudo apt-get install -y -q --no-install-recommends \
+          build-essential gcc make python3
+    displayName: 'Install build deps'
+
+  - script: |
+      set -e
+      cd "$BUILD_SOURCESDIRECTORY"
+      labs=$(./docs/academics/labs/autograder/ci/changed-labs.sh \
+                "origin/$(System.PullRequest.TargetBranch)" 2>/dev/null || \
+             ./docs/academics/labs/autograder/ci/changed-labs.sh \
+                "origin/main" 2>/dev/null || \
+             true)
+      if [ -z "$labs" ]; then
+          echo "##vso[task.logissue type=warning]No labs changed; nothing to grade."
+          echo "##vso[task.setvariable variable=labs]"
+          exit 0
+      fi
+      labs_oneline=$(echo "$labs" | tr '\n' ' ')
+      echo "Detected: $labs_oneline"
+      echo "##vso[task.setvariable variable=labs]$labs_oneline"
+    displayName: 'Detect changed labs'
+
+  - script: |
+      set -e
+      [ -z "$LABS" ] && exit 0
+      cd "$BUILD_SOURCESDIRECTORY"
+      for lab in $LABS; do
+          ./docs/academics/labs/autograder/ci/instructor-overlay.sh \
+              "$lab" "$AGENT_BUILDDIRECTORY/instructor"
+      done
+    env:
+      LABS: $(labs)
+    displayName: 'Overlay instructor files'
+
+  - script: |
+      set +e
+      [ -z "$LABS" ] && exit 0
+      cd "$BUILD_SOURCESDIRECTORY"
+      : > grades.jsonl
+      for lab in $LABS; do
+          echo "==> grading $lab"
+          ./docs/academics/labs/autograder/runner.sh "$lab" >> grades.jsonl
+      done
+      cat grades.jsonl
+    env:
+      LABS: $(labs)
+    displayName: 'Run autograder'
+
+  - script: |
+      [ -z "$LABS" ] && exit 0
+      cd "$BUILD_SOURCESDIRECTORY"
+      ./docs/academics/labs/autograder/ci/ci-comment.py \
+          grades.jsonl > grades.md
+      echo "--- Grade summary ---"
+      cat grades.md
+    env:
+      LABS: $(labs)
+    displayName: 'Render Markdown summary'
+
+  - publish: $(Build.SourcesDirectory)/grades.jsonl
+    artifact: autograder-grades-$(Build.BuildId)
+    condition: and(succeeded(), ne(variables['labs'], ''))
+    displayName: 'Publish grades.jsonl artifact'
+
+  - publish: $(Build.SourcesDirectory)/grades.md
+    artifact: autograder-comment-$(Build.BuildId)
+    condition: and(succeeded(), ne(variables['labs'], ''))
+    displayName: 'Publish grades.md artifact'
+
+  # Post a PR comment using the Azure DevOps REST API.
+  # Requires the build identity to have "Contribute to pull requests"
+  # permission on the repository.
+  - script: |
+      set -e
+      if [ -z "$LABS" ] || [ "$BUILD_REASON" != "PullRequest" ]; then
+          exit 0
+      fi
+      BODY=$(cat grades.md | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
+      curl -sS -X POST \
+          -H "Authorization: Bearer $SYSTEM_ACCESSTOKEN" \
+          -H "Content-Type: application/json" \
+          "$SYSTEM_TEAMFOUNDATIONCOLLECTIONURI$SYSTEM_TEAMPROJECT/_apis/git/repositories/$BUILD_REPOSITORY_ID/pullRequests/$SYSTEM_PULLREQUEST_PULLREQUESTID/threads?api-version=7.1-preview.1" \
+          -d "{\"comments\":[{\"parentCommentId\":0,\"commentType\":1,\"content\":$BODY}],\"status\":1}"
+    env:
+      LABS:               $(labs)
+      SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+    displayName: 'Post PR comment (on PR builds only)'
+    condition: and(succeeded(), eq(variables['Build.Reason'], 'PullRequest'))

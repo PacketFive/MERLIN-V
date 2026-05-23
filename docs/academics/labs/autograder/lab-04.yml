@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Autograder reference manifest for Lab 04 (minimal verifier).
+
+lab: lab-04
+build_target: merlin-verify
+test_command: ./tests/run-all.sh
+
+accept:
+  - 01-trivial
+  - 02-const
+  - 03-ctx-load
+  - 04-helper-call
+  - 05-fwd-branch
+
+reject:
+  - id: 01-bad-load
+    keywords: ["non-pointer", "load", "kind"]
+  - id: 02-back-edge
+    keywords: ["back-edge", "imm"]
+  - id: 03-ecall-nonconst
+    keywords: ["ecall", "non-const", "a7"]
+  - id: 04-ecall-bad-id
+    keywords: ["helper", "allow", "99"]
+  - id: 05-forbidden-csr
+    keywords: ["forbidden", "CSR", "undecod"]
+  - id: 06-bad-store
+    keywords: ["non-pointer", "store"]
+
+# Additional hidden tests:
+#   - back-edge BRANCH (not just JAL)
+#   - load through PTR_HELPER_RET should be accepted (TODO Phase-2)

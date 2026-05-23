@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Autograder reference manifest for Lab 03 (user-space interpreter).
+
+lab: lab-03
+build_target: merlin
+test_command: ./tests/run-all.sh
+
+tests:
+  - id: 01-addi
+    description: "addi a0, x0, 42 ; ret"
+    expected_stdout: "42"
+    expected_exit: 0
+  - id: 02-loop-bounded
+    description: "bounded sum loop 0..4 = 10"
+    expected_stdout: "10"
+    expected_exit: 0
+  - id: 03-sum-args
+    description: "add a0, a0, a0 ; ret  with -a 21"
+    expected_stdout: "42"
+    expected_exit: 0
+    cli_args: ["-a", "21"]
+  - id: 04-lui-immediate
+    description: "lui + addi = 0x12345678"
+    expected_stdout: "305419896"
+    expected_exit: 0
+  - id: 05-shifts
+    description: "li 1 ; slli 5 = 32"
+    expected_stdout: "32"
+    expected_exit: 0
+  - id: 06-branch-not-taken
+    description: "beq not taken, returns 99"
+    expected_stdout: "99"
+    expected_exit: 0
+  - id: 07-branch-taken
+    description: "beq taken, returns 42"
+    expected_stdout: "42"
+    expected_exit: 0
+
+# Additional hidden tests run by the grader (not shipped to students):
+#   - signed-comparison SLTI corner case
+#   - SRAI with negative shift source
+#   - helper-call (helper id 1 / trace_print) round-trip

@@ -1,0 +1,160 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+#
+# .github/workflows/autograde.yml
+#
+# Runs the MERLIN-V lab autograder on every push or PR that touches
+# docs/academics/labs/lab-*/.  Publishes results as:
+#   - a Markdown comment on the PR (if there is one)
+#   - a GitHub Actions Job Summary
+#   - a grades.jsonl artifact (machine-readable, one record per lab)
+#
+# Academic integrity gate:
+#   The student's working tree is grading-graded with the canonical
+#   instructor files overlaid on top.  Modifying tests/, Makefile, or
+#   PROVIDED headers in your submission has no effect.
+#
+# The instructor canonical files live on `main` of the upstream repo
+# (env INSTRUCTOR_REPO and INSTRUCTOR_REF below).
+
+name: autograde
+
+on:
+  push:
+    paths:
+      - 'docs/academics/labs/**'
+  pull_request:
+    paths:
+      - 'docs/academics/labs/**'
+  workflow_dispatch:        # manual re-grade
+    inputs:
+      labs:
+        description: 'Space-separated lab IDs (e.g. "lab-02 lab-03"); empty = autodetect'
+        required: false
+        default: ''
+
+permissions:
+  contents:       read
+  pull-requests:  write    # PR comment
+  issues:         write
+
+env:
+  # Where to fetch the canonical instructor files from.
+  # For most institutional deployments, this is the upstream
+  # PacketFive/MERLIN-V repo at the locked-down `main` branch.
+  INSTRUCTOR_REPO: PacketFive/MERLIN-V
+  INSTRUCTOR_REF:  main
+
+jobs:
+  autograde:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout student tree
+        uses: actions/checkout@v4
+        with:
+          path: student
+          fetch-depth: 0       # need history for `git diff`
+
+      - name: Checkout instructor canonical tree
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.INSTRUCTOR_REPO }}
+          ref:        ${{ env.INSTRUCTOR_REF }}
+          path:       instructor
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -q --no-install-recommends \
+              build-essential gcc make
+
+      - name: Detect changed labs
+        id: changed
+        run: |
+          set -e
+          cd student
+          if [ -n "${{ github.event.inputs.labs }}" ]; then
+              labs="${{ github.event.inputs.labs }}"
+          else
+              labs=$(./docs/academics/labs/autograder/ci/changed-labs.sh \
+                     "origin/${{ github.base_ref || 'main' }}")
+          fi
+          if [ -z "$labs" ]; then
+              echo "No labs changed; nothing to grade."
+              echo "labs=" >> "$GITHUB_OUTPUT"
+              exit 0
+          fi
+          echo "Detected labs to grade: $labs"
+          # Convert newlines to spaces for the env var
+          labs_oneline=$(echo "$labs" | tr '\n' ' ')
+          echo "labs=$labs_oneline" >> "$GITHUB_OUTPUT"
+
+      - name: Overlay instructor files
+        if: steps.changed.outputs.labs != ''
+        run: |
+          set -e
+          cd student
+          for lab in ${{ steps.changed.outputs.labs }}; do
+              ./docs/academics/labs/autograder/ci/instructor-overlay.sh \
+                  "$lab" "$GITHUB_WORKSPACE/instructor"
+          done
+
+      - name: Run autograder
+        if: steps.changed.outputs.labs != ''
+        id: grade
+        run: |
+          set +e
+          cd student
+          : > grades.jsonl
+          overall=0
+          for lab in ${{ steps.changed.outputs.labs }}; do
+              echo "::group::Grading $lab"
+              ./docs/academics/labs/autograder/runner.sh "$lab" \
+                  >> grades.jsonl
+              rc=$?
+              echo "::endgroup::"
+              # Track worst rc but never abort the loop
+              if [ $rc -ne 0 ]; then overall=$rc; fi
+          done
+          echo "exit_code=$overall" >> "$GITHUB_OUTPUT"
+          cat grades.jsonl
+
+      - name: Render Markdown summary
+        if: steps.changed.outputs.labs != ''
+        run: |
+          cd student
+          ./docs/academics/labs/autograder/ci/ci-comment.py \
+              grades.jsonl > grades.md
+          cat grades.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload grades artifact
+        if: steps.changed.outputs.labs != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: autograder-results-${{ github.run_id }}
+          path: |
+            student/grades.jsonl
+            student/grades.md
+          retention-days: 30
+
+      - name: Post PR comment (on PR only)
+        if: |
+          steps.changed.outputs.labs != '' &&
+          github.event_name == 'pull_request'
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          body-path:    student/grades.md
+          edit-mode:    replace
+
+      - name: Fail job if any lab scored below 60
+        if: steps.changed.outputs.labs != ''
+        run: |
+          # We deliberately do NOT fail the job by default — graded
+          # output is the deliverable, not pass/fail.  Instructors who
+          # want hard-gating can flip this to `exit 1`.
+          if [ "${{ steps.grade.outputs.exit_code }}" != "0" ]; then
+              echo "::warning::At least one lab scored below the 60% gate."
+          fi
+          exit 0
