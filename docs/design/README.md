@@ -35,6 +35,7 @@ the source material for:
 | 11 | [`11-mvcp-attestation.md`](11-mvcp-attestation.md) — MVCP attestation protocol and HW chain | draft |
 | 12 | [`12-core-v-spec.md`](12-core-v-spec.md) — CO-RE-V relocation and `.merlin.btf_ext` spec | draft |
 | 13 | [`13-evaluation-plan.md`](13-evaluation-plan.md) — RFC v1 evaluation plan: workloads, environments, pass/fail criteria | starter |
+| 14 | [`14-mvcp-multicast.md`](14-mvcp-multicast.md) — MVCP multicast channel: `MERLIN_NL_CTRL` Genl family + event schemas | design |
 
 For the course/training-material companion to these design docs, see
 [`../academics/`](../academics/README.md).
