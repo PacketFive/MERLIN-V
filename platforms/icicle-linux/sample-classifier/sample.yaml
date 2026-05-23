@@ -1,0 +1,28 @@
+sample:
+  name: MERLIN-V Icicle Kit (rv64) packet classifier
+  description: >-
+    Load a small MERLIN-V program through the /dev/merlin ioctl on
+    a RISC-V Linux host (MPFS Icicle Kit), exercise the pass-through
+    JIT path, and classify two synthetic Ethernet frames.
+
+common:
+  tags:
+    - merlin
+    - platform_icicle
+  platform_allow:
+    - mpfs_icicle/polarfire/u54
+  harness: shell
+  harness_config:
+    type: multi_line
+    ordered: true
+    regex:
+      - "classifier: opened /dev/merlin"
+      - "classifier: loaded prog_fd=.*"
+      - "ETH/IPv4 packet -> retval=2 \\(PASS\\)"
+      - "ETH/RARP  packet -> retval=1 \\(DROP\\)"
+      - "classifier: done"
+  requires:
+    - "merlin.ko module loaded (insmod /lib/modules/.../merlin.ko)"
+
+tests:
+  sample.merlin.platform.icicle.classifier: {}
