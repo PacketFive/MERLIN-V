@@ -1,0 +1,336 @@
+% SPDX-License-Identifier: CC-BY-SA-4.0
+%
+% slides.tex — Beamer deck for a 45-minute guest lecture / talk version
+% of the course-companion paper.
+
+\documentclass[aspectratio=169,11pt]{beamer}
+
+\usetheme{metropolis}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{listings}
+\usepackage{xcolor}
+
+\setbeamertemplate{navigation symbols}{}
+\setbeamercovered{transparent}
+
+\lstdefinelanguage{rvasm}{
+  morekeywords={addi,add,sub,lw,sw,lbu,beq,bne,blt,jal,jalr,lui,auipc,ecall,fence},
+  sensitive=true,
+  morecomment=[l]{;},
+}
+
+\lstset{
+  basicstyle=\ttfamily\scriptsize,
+  keywordstyle=\bfseries,
+  commentstyle=\color{gray},
+  frame=single,
+  framerule=0.3pt,
+}
+
+\title{Teaching Modern OS Design Through Kernel-Extension VMs}
+\subtitle{A MERLIN-V Course Companion}
+\author{Weqaar Janjua}
+\institute{PacketFive --- University of Limerick}
+\date{2026}
+
+\begin{document}
+
+\maketitle
+
+% ----------------------------------------------------------------
+\begin{frame}{The pitch}
+
+The single highest-leverage project for a graduate OS course is
+
+\begin{center}
+\textbf{a kernel-extension VM.}
+\end{center}
+
+\pause
+One project covers:
+\begin{itemize}
+  \item compiler / codegen (the JIT)
+  \item program analysis (the verifier)
+  \item kernel internals (RCU, anon-inode fds, I-cache, IPI)
+  \item UAPI design (the stability promise)
+  \item cross-OS portability (the same image on Linux + Zephyr)
+\end{itemize}
+
+\pause
+No other project hits all five.
+
+\end{frame}
+
+% ----------------------------------------------------------------
+\begin{frame}{What's the gap?}
+
+Most OS courses still build a toy kernel:
+\begin{itemize}
+  \item xv6 / Pintos / OSTEP exercises
+  \item Process model, virtual memory, FS, scheduler
+\end{itemize}
+
+\pause
+
+The frontier where kernel engineers actually work is
+\textbf{controlled extension}:
+\begin{itemize}
+  \item eBPF (Linux observability + networking)
+  \item ChromeOS sandboxing
+  \item Cilium, Cilium-derived service meshes
+  \item Modern tracing infrastructure
+\end{itemize}
+
+\pause
+
+These almost never appear in an OS curriculum at the
+``build the verifier'' level.  That's where this course sits.
+
+\end{frame}
+
+% ----------------------------------------------------------------
+\begin{frame}{Why not just teach eBPF?}
+
+eBPF has a custom 64-bit RISC-like ISA that exists because in
+2014 there was no widely-available simple 64-bit RISC ISA with
+production toolchains.
+
+\pause
+
+That precondition no longer holds.
+
+\textbf{RISC-V is:}
+\begin{itemize}
+  \item Ratified, ABI-stable, multi-vendor
+  \item Supported in GCC, LLVM, glibc, musl, Linux, Zephyr
+  \item Already the bytecode of many SmartNIC control cores
+\end{itemize}
+
+\pause
+
+\textbf{MERLIN-V's premise:} pick RISC-V as the in-kernel
+JIT VM's bytecode.  Pedagogically clean.  Toolchain story
+collapses to ``stock RISC-V GCC.''
+
+\end{frame}
+
+% ----------------------------------------------------------------
+\begin{frame}{Structural consequences}
+
+\begin{itemize}
+  \item \textbf{On RISC-V hosts}: the JIT is a pass-through.
+        Verified image \emph{is} native machine code.
+  \item \textbf{On x86\_64 / arm64}: the JIT still exists, but
+        its input is standard RISC-V, not a bespoke bytecode.
+  \item \textbf{Toolchain}: no LLVM-BPF backend; no parallel
+        gcc-bpf.  Just \texttt{riscv32-unknown-elf-gcc}.
+  \item \textbf{Embedded}: the same \texttt{.merlin.o} loads
+        into Zephyr on a 400 KiB SRAM MCU.
+\end{itemize}
+
+\pause
+
+This is not incremental.  It restructures the
+``where does the translation happen'' problem.
+
+\end{frame}
+
+% ----------------------------------------------------------------
+\begin{frame}[fragile]{The worked example}
+
+Through the entire course, students return to one tiny program.
+
+\begin{lstlisting}[language=rvasm]
+classify:
+    lbu  a1, 12(a0)       ; a1 = pkt[12] (EtherType hi byte)
+    addi a2, x0, 8        ; a2 = 0x08 (IPv4 high byte)
+    beq  a1, a2, .pass
+    addi a0, x0, 1        ; return 1 (DROP)
+    jalr x0, ra, 0
+.pass:
+    addi a0, x0, 2        ; return 2 (PASS)
+    jalr x0, ra, 0
+\end{lstlisting}
+
+\pause
+
+7 instructions.  28 text bytes.
+
+\pause
+
+Every concept in the course shows up in this program:
+typed-pointer load, constant materialisation, forward branch,
+two return paths, termination.
+
+\end{frame}
+
+% ----------------------------------------------------------------
+\begin{frame}{What the verifier must prove}
+
+For this 7-instruction program:
+
+\begin{itemize}
+  \item \texttt{a0} on entry is \texttt{PtrCtx(0)}
+        $\Rightarrow$ \texttt{lbu a1, 12(a0)} is safe
+  \item \texttt{a2 = addi x0, 8} is \texttt{Const(8)}
+        $\Rightarrow$ branch is type-checkable
+  \item No back-edge $\Rightarrow$ terminates
+  \item No \texttt{ecall}, no privileged op
+  \item Two return paths, both via \texttt{jalr x0, ra, 0}
+\end{itemize}
+
+\pause
+
+\textbf{Pedagogically:} this is where students discover
+abstract interpretation.  They concretely instantiate it
+themselves in Lab 04 (\textasciitilde 200 lines of C).
+
+\end{frame}
+
+% ----------------------------------------------------------------
+\begin{frame}{Course structure: 6 modules, 11 labs}
+
+\begin{enumerate}
+  \item \textbf{Setup} (Lab 00)
+  \item \textbf{Context} (eBPF dissection $\rightarrow$ RV32 primer)
+  \item \textbf{User-space MERLIN-V core} (interpreter $\rightarrow$
+        verifier $\rightarrow$ objtool)
+  \item \textbf{JITs} (pass-through $\rightarrow$ host JIT to x86\_64)
+  \item \emph{Midterm: written design exam, no code}
+  \item \textbf{In-kernel runtime} (Linux module $\rightarrow$ Zephyr)
+\end{enumerate}
+
+\pause
+
+Plus Lab 10 (hardware bring-up: ESP32-C3 + MPFS Icicle) and
+Lab 11 (capstone: student-chosen extension).
+
+\end{frame}
+
+% ----------------------------------------------------------------
+\begin{frame}{Lab 03 is the load-bearing one}
+
+Lab 03: \textbf{User-space MERLIN-V interpreter}.
+
+\begin{itemize}
+  \item Student starts knowing only C.
+  \item Ends with a working RV32I interpreter that runs the
+        worked-example program.
+  \item Five TODO blocks: ALU-imm, load, store, branch, ecall.
+  \item Decoder + dispatch loop + helper trampoline are
+        PROVIDED.
+\end{itemize}
+
+\pause
+
+\textbf{Why it's load-bearing:} every subsequent lab assumes
+this concrete interpreter exists.  The verifier in Lab 04 is
+an \emph{abstract} interpreter \textit{over the same dispatch
+structure}.  The leap from concrete to abstract is the highest
+pedagogical moment in the course.
+
+\end{frame}
+
+% ----------------------------------------------------------------
+\begin{frame}{Autograder pipeline}
+
+Every lab is autograded by a 90-line shell script.
+
+\textbf{Locally:}
+\begin{itemize}
+  \item \texttt{make test} drives the lab's per-test harness
+  \item \texttt{runner.sh lab-03} emits one-line JSON
+  \item \texttt{score.py} converts JSON to rubric line
+\end{itemize}
+
+\pause
+
+\textbf{In CI (GitHub Actions + Azure DevOps):}
+\begin{itemize}
+  \item Push triggers grading; PR gets a Markdown comment
+  \item \textbf{Integrity gate:} canonical instructor files
+        overlay the student's tests/Makefile/PROVIDED before
+        grading
+  \item No way to game the autograder by editing tests
+  \item Verified empirically: a fake \texttt{run-all.sh}
+        scores 100 without overlay, 14 with overlay.
+\end{itemize}
+
+\end{frame}
+
+% ----------------------------------------------------------------
+\begin{frame}{Cross-OS portability proof}
+
+The same \texttt{.merlin.o} binary runs on:
+
+\begin{itemize}
+  \item \textbf{ESP32-C3-DevKitM-1} (RV32IMC, Zephyr,
+        400 KiB SRAM, no MMU)
+  \item \textbf{MPFS Icicle Kit} (RV64GC, upstream Linux,
+        2 GiB DRAM, kernel module)
+\end{itemize}
+
+\pause
+
+\begin{itemize}
+  \item Same RV instructions (lbu/addi/beq/jalr encode
+        identically on RV32 and RV64).
+  \item Different ELF wrappers (Elf32 vs Elf64), same .text.
+  \item Same verifier algorithm.
+  \item Same helper ABI.
+\end{itemize}
+
+\pause
+
+This is the closing demo of the course.  Students see their
+own program running on two boards.
+
+\end{frame}
+
+% ----------------------------------------------------------------
+\begin{frame}{What this teaches that a toy kernel does not}
+
+\begin{itemize}
+  \item \textbf{Stable UAPI} — \texttt{union merlin\_attr} is
+        designed to honour the Linux ``never break userspace''
+        contract.
+  \item \textbf{Verifier soundness as a trust boundary} ---
+        bug in JIT corrupts one program; bug in verifier
+        compromises the kernel.
+  \item \textbf{RCU + refcounting} — real synchronisation
+        primitives, used in anger.
+  \item \textbf{I-cache coherence} — they discover
+        \texttt{flush\_icache\_range} the hard way (a single
+        missing flush makes hot-reload silently broken).
+  \item \textbf{CI culture} — PR-based, integrity-gated,
+        graded.
+\end{itemize}
+
+\end{frame}
+
+% ----------------------------------------------------------------
+\begin{frame}{Closing}
+
+\begin{block}{Take-aways}
+  \begin{itemize}
+    \item Kernel-extension VMs are the right OS-curriculum
+          vehicle for 2026 onwards.
+    \item RISC-V removes a barrier eBPF imposes.
+    \item Lab 03 + Lab 04 are the high-leverage moments.
+    \item CI + overlay solves academic integrity.
+  \end{itemize}
+\end{block}
+
+\pause
+
+\textbf{Code, slides, paper:}\\
+\url{https://github.com/PacketFive/MERLIN-V/tree/main/docs/academics}
+
+\medskip
+CC-BY-SA-4.0 (text), GPL-2.0-only / Apache-2.0 (code).\\
+Contributions welcome.
+
+\end{frame}
+
+\end{document}

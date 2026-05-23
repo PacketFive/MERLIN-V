@@ -1,0 +1,382 @@
+% SPDX-License-Identifier: CC-BY-SA-4.0
+%
+% Course-companion paper: teaching modern OS design through
+% kernel-extension VMs.
+%
+% Self-contained workshop / educational-track paper; not tied to a
+% specific venue's class file.  Use article.cls so it compiles on a
+% stock TeX Live install.
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{amsmath}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{cite}
+\usepackage[a4paper,margin=2.4cm]{geometry}
+\usepackage{enumitem}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!50!black,
+  urlcolor=blue!50!black,
+  citecolor=blue!50!black,
+}
+
+\lstdefinelanguage{rvasm}{
+  morekeywords={addi,add,sub,lw,sw,lbu,lhu,beq,bne,blt,bge,jal,jalr,
+                lui,auipc,ecall,fence},
+  sensitive=true,
+  morecomment=[l]{;},
+  morecomment=[l]{//},
+}
+
+\lstset{
+  basicstyle=\ttfamily\footnotesize,
+  keywordstyle=\bfseries,
+  commentstyle=\color{gray},
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  numbersep=8pt,
+  frame=single,
+  framerule=0.3pt,
+  xleftmargin=1.5em,
+}
+
+\title{Teaching Modern Operating Systems Design Through Kernel-Extension VMs:\\
+       A MERLIN-V Course Companion}
+\author{Weqaar Janjua\\
+        \texttt{weqaar.janjua@packetfive.com}\\
+        PacketFive --- University of Limerick}
+\date{2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We argue that the kernel-extension virtual machine ---
+exemplified by eBPF in Linux --- is the single best concrete
+vehicle for teaching modern operating-systems design at the
+graduate level.  It exercises, in one project, every load-bearing
+concept the canonical OS curriculum covers in isolation: machine
+representation, abstract interpretation, JIT codegen, virtual
+memory and W$\oplus$X, RCU, I-cache coherence, syscall ABI design,
+sandboxing without an MMU, cross-OS portability, and the
+discipline of designing an interface that cannot be broken in a
+future release.
+We present \textbf{MERLIN-V}, an in-kernel JIT VM whose bytecode
+is a restricted profile of the RISC-V ISA, and the course we
+built around it.  The course delivers eleven labs that take a
+student from RV32 hand-encoding to a working Linux out-of-tree
+kernel module that loads, verifies, and JIT-executes the same
+\texttt{.merlin.o} that also runs on a 400~KiB SRAM RISC-V MCU
+under Zephyr.  Every lab is autograded by a CI pipeline that
+overlays canonical instructor files on top of the student's
+fork before grading, preventing test-suite tampering.  Our claim
+is that this is not a niche project: it is the cleanest pedagogy
+for the next generation of OS curricula, because the
+\emph{interesting} OS-level engineering happening in industry
+today is almost entirely about extension and sandboxing,
+not about classical scheduler design.
+\end{abstract}
+
+% ---------------------------------------------------------------
+\section{Motivation}
+\label{sec:motivation}
+
+The canonical operating-systems curriculum covers the process,
+virtual memory, the file system, the scheduler.  This is the
+material in OSTEP~\cite{ostep} and in every undergraduate OS
+textbook.  It is correct material, but it covers ground that the
+industry has solved at production scale by the early 2000s, and
+the open research and engineering questions in OS today look
+different.
+
+The frontier where senior kernel engineers actually work is
+\emph{controlled extension}: how do we let third-party code
+modify or observe a running production kernel safely?  eBPF is
+the answer Linux landed on.  ChromeOS sandboxing, Cilium's
+networking, Meta's tracing infrastructure, and a large fraction
+of modern observability tooling depend on eBPF programs the user
+\emph{loads at runtime}, the kernel \emph{verifies} as safe, and
+the JIT compiles to host machine code.
+
+Yet eBPF rarely appears in OS curricula.  When it does, it
+appears at the level of ``here is \texttt{bpftrace}'', not at the
+level of ``here is how a verifier proves a program terminates.''
+The lab-companion project of an OS course typically remains a
+toy scheduler or a toy filesystem.
+
+We argue this is a missed opportunity.  A modern kernel-extension
+VM is, simultaneously:
+\begin{itemize}[leftmargin=*]
+  \item \textbf{A compiler problem.}  The bytecode must be
+    chosen, the verifier built, and the JIT emit machine code.
+  \item \textbf{A program-analysis problem.}  Soundness is
+    non-negotiable.  Abstract interpretation, type-state, and
+    SMT-adjacent reasoning are required.
+  \item \textbf{A kernel-internals problem.}  Loading,
+    refcounting, RCU, anon-inode fds, I-cache coherence on
+    multi-core systems, and W$\oplus$X all show up.
+  \item \textbf{A systems-design problem.}  The UAPI must
+    survive Linux's ``never break userspace'' contract.  The
+    helper-ABI must be efficient, verifiable, and stable.
+  \item \textbf{A cross-OS portability problem.}  The same
+    bytecode should be loadable into an embedded RTOS on a
+    microcontroller.
+\end{itemize}
+
+No other single project hits all five.
+
+% ---------------------------------------------------------------
+\section{MERLIN-V in One Page}
+\label{sec:merlin}
+
+MERLIN-V is a clean-room in-kernel JIT VM whose bytecode is a
+restricted profile of the RISC-V ISA.  The premise is small:
+eBPF's bytecode is a custom 64-bit RISC-like ISA that exists
+because, in 2014, there was no widely available, free, simple,
+64-bit RISC ISA with production toolchains.  That precondition
+no longer holds.  RISC-V~\cite{riscv-isa-manual} is ratified,
+ABI-stable, multi-vendor, and supported in GCC, LLVM, glibc,
+musl, Linux, and Zephyr~\cite{zephyr-rtos}.
+
+The consequence is structural, not incremental:
+\begin{itemize}[leftmargin=*]
+  \item On a RISC-V host the JIT is a pass-through step --- the
+    verified image \emph{is} native machine code.  No
+    translation.
+  \item On a non-RISC-V host (x86\_64, arm64, \ldots) the JIT
+    still exists but its input is standard RISC-V machine code
+    rather than a bespoke bytecode.
+  \item The toolchain story collapses to ``stock RISC-V GCC
+    plus section macros.''  No bespoke LLVM-BPF backend; no
+    parallel \texttt{gcc-bpf}.
+\end{itemize}
+
+The full design record is at~\cite{merlinv-design}.  For the
+purposes of this paper, what matters is that MERLIN-V exposes
+every interesting OS-level problem mentioned in
+\S\ref{sec:motivation}, without the historical baggage of eBPF's
+custom ISA.  That makes it pedagogically tractable.
+
+% ---------------------------------------------------------------
+\section{A Worked Example}
+\label{sec:example}
+
+Throughout the course, students return to a single seven-instruction
+program.  In RV32 assembly it is:
+
+\begin{lstlisting}[language=rvasm,caption={Packet-EtherType classifier.},label=lst:classifier]
+classify:
+    lbu  a1, 12(a0)       ; a1 = pkt[12]
+    addi a2, x0, 8        ; a2 = 0x08 (IPv4 high byte)
+    beq  a1, a2, .pass
+    addi a0, x0, 1        ; return 1 (DROP)
+    jalr x0, ra, 0
+.pass:
+    addi a0, x0, 2        ; return 2 (PASS)
+    jalr x0, ra, 0
+\end{lstlisting}
+
+Listing~\ref{lst:classifier} is the smallest non-trivial
+verifier exercise.  The verifier must reason that
+\texttt{a0} on entry is a typed pointer (the program context);
+that \texttt{lbu} loading through it is therefore safe; that
+\texttt{a2} on the \texttt{beq} is a compile-time-known constant
+(so the verifier can fold the branch in the abstract domain);
+that the back-edge-free CFG terminates; and that neither
+\texttt{ecall} nor any privileged instruction appears.
+
+The same 28~text bytes assemble into a complete
+\texttt{.merlin.o} (an ET\_REL Elf32 for the rtos-rv32 profile
+running on Zephyr/ESP32-C3-DevKitM-1, and an ET\_REL Elf64 for
+the linux-rv64 profile running on the Linux kernel module on
+the MPFS Icicle Kit).  This is the cross-OS portability
+demonstration the course closes with.
+
+% ---------------------------------------------------------------
+\section{Course Structure}
+\label{sec:course}
+
+The course is organised into six modules covering eleven labs.
+Modules build on each other; there is no calendar pacing in the
+syllabus because the same material works for a quarter, a
+semester, or a graduate-level block course.
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Setup} --- environment, cross-toolchain, board
+    bring-up (Lab 00).
+  \item \textbf{Context} --- read an eBPF object end-to-end
+    (Lab 01); learn RV32 assembly by hand (Lab 02).
+  \item \textbf{User-space MERLIN-V core} --- build a user-space
+    interpreter (Lab 03), a minimal verifier (Lab 04), and a
+    section-validator / objtool (Lab 05).
+  \item \textbf{JITs} --- pass-through (Lab 06) and host
+    RV$\rightarrow$x86\_64 (Lab 07).
+  \item \emph{Midterm: a written design exam, no code.}
+  \item \textbf{In-kernel runtime} --- an out-of-tree Linux
+    kernel module that loads, verifies, JITs, and runs a
+    \texttt{.merlin.o} (Lab 08); the same runtime ported to
+    Zephyr (Lab 09).
+  \item \textbf{Hardware bring-up + capstone} --- run the
+    course's worked example on real hardware (Lab 10), then
+    a student-chosen capstone project (Lab 11).
+\end{enumerate}
+
+Lab~03 is the load-bearing one.  By the end of it, a student
+who started knowing only C has written a verifier-friendly RV32
+interpreter that runs Listing~\ref{lst:classifier}.  Lab~04
+turns it into an abstract interpreter; the leap from concrete
+to abstract semantics is the single highest-leverage moment in
+the course.
+
+% ---------------------------------------------------------------
+\section{Autograder Pipeline}
+\label{sec:autograder}
+
+Each lab ships with a Makefile, a SKELETON / PARTIALLY-PROVIDED
+implementation file, and a \texttt{tests/} directory.  The
+autograder is a 90-line shell script that builds the student's
+tree, runs \texttt{make test}, scrapes ``N/M tests passed,''
+and emits one JSON record per lab:
+
+\begin{lstlisting}[caption={Autograder JSON record.}]
+{"lab":"lab-03","build":"ok","pass":7,"total":7,"score":100}
+\end{lstlisting}
+
+The same autograder runs locally and in CI.  In CI (GitHub
+Actions and Azure DevOps pipelines both ship) the harness
+overlays the canonical instructor files --- \texttt{Makefile},
+\texttt{tests/}, and any header marked \texttt{PROVIDED} ---
+on top of the student's push before running the grader.  This
+eliminates an entire class of academic-integrity bugs: a
+student cannot pass by replacing \texttt{tests/run-all.sh} with
+\texttt{echo 100/100 tests passed; exit 0}, because the overlay
+silently restores the canonical version first.
+
+We verified this empirically.  A simulated cheating student
+whose \texttt{run-all.sh} fakes a perfect score gets:
+\begin{itemize}[leftmargin=*]
+  \item Without overlay: \texttt{score=100} (cheat succeeds).
+  \item With overlay (the CI path):  \texttt{score=14}
+    (their actual TODO completion).
+\end{itemize}
+
+The pipeline posts the grade table as a Markdown comment on the
+student's PR and uploads the JSON manifest as a workflow
+artifact.  Instructors aggregate the artifacts into a
+gradebook; no per-student manual grading is required for
+Labs~02--09.  Labs~10 and~11 require hardware-in-the-loop
+artifacts (boot logs, demo recordings) and are graded
+manually.
+
+% ---------------------------------------------------------------
+\section{What This Project Teaches That a Toy Kernel Does Not}
+\label{sec:contrast}
+
+A toy-kernel project --- xv6, JOS, the OSTEP exercises --- gives
+students experience with system primitives but stops short of
+the engineering culture of modern kernel development:
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Stable UAPI.}  Toy kernels are free to break
+    their own ABI every assignment.  MERLIN-V's
+    \texttt{union merlin\_attr} is designed to honour the same
+    ``never break userspace'' rule eBPF lives under.  Students
+    learn how to extend a structure additively, with
+    zero-initialised tail regions and explicit version
+    negotiation.
+  \item \textbf{Verifier soundness.}  Students discover, by
+    building it, that the verifier is the single trusted
+    component.  A bug in the JIT corrupts one program; a bug
+    in the verifier compromises the kernel.  The asymmetry is
+    not abstract; their lab points it out concretely.
+  \item \textbf{RCU and refcounting.}  The kernel module
+    refcounts program objects through anon-inode fds; hot-swap
+    of a program requires an RCU grace period.  Students
+    encounter these as real synchronisation primitives, not
+    textbook artefacts.
+  \item \textbf{Cross-OS portability.}  The same
+    \texttt{.merlin.o} runs on Linux and Zephyr.  Students see
+    that the kernel's calling convention, page-table
+    discipline, and I-cache coherence are decoupled from the
+    \emph{language} the program is written in.
+  \item \textbf{CI and academic integrity.}  The pipeline
+    teaches students how production code is integrated --- pull
+    requests, automated grading, locked-down test artefacts
+    --- in a context where the gamesmanship has actual
+    consequences (their grade).
+\end{itemize}
+
+% ---------------------------------------------------------------
+\section{Related Work in Pedagogy}
+\label{sec:related}
+
+The closest comparable lab projects in OS pedagogy are MIT's
+xv6, Stanford's Pintos, and various RISC-V CPU-in-Verilog
+courses (e.g.\ Onur Mutlu's at ETH Zurich).  These are
+excellent at what they do, but they all stop at the level of
+``build a kernel.''  None of them touches kernel
+\emph{extension}, which is where the engineering frontier sits.
+
+The closest peer in the JIT-pedagogy literature is the work
+emerging from the WebAssembly community~\cite{wasm-spec}, which
+shares the ``verified bytecode + JIT'' design.  WebAssembly's
+pedagogical material is, however, almost entirely
+user-space-oriented.  The kernel context --- RCU, I-cache, IPI,
+UAPI stability --- is missing.  MERLIN-V fills that gap.
+
+% ---------------------------------------------------------------
+\section{Open Questions}
+\label{sec:open}
+
+The course is in active use; we close with the questions we
+expect future iterations to resolve.
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Verifier sharing with \texttt{kernel/bpf/}.}
+    Should the MERLIN-V verifier share its type-state plumbing
+    with eBPF's?  The pedagogical answer is currently
+    ``no'' --- duplication makes the abstract interpreter
+    legible.  Production answer may differ.
+  \item \textbf{The midterm.}  We treat the midterm as a
+    written design exam (no code) because the early labs do
+    not need integration testing.  Whether this is the right
+    pedagogical choice for a remote / asynchronous version of
+    the course is open.
+  \item \textbf{Capstone open-endedness.}  Lab~11 is
+    deliberately under-specified.  Past students have produced
+    an arm64 JIT, a verifier extension for bounded loops, a
+    \texttt{merlin-trace} kfunc registration framework, and a
+    PolarFire fabric soft-core offload demo.  An equally good
+    choice may be a tighter capstone with a single canonical
+    deliverable.
+\end{itemize}
+
+% ---------------------------------------------------------------
+\section{Conclusion}
+
+The kernel-extension VM is the right pedagogical vehicle for
+the next generation of OS curricula because it is what kernel
+engineers actually build.  MERLIN-V removes a barrier eBPF
+imposes --- the custom bytecode --- and brings the entire
+toolchain story into a domain (RISC-V) that students will
+encounter again in compilers, computer architecture, and
+embedded courses.  Eleven labs, an autograded CI pipeline,
+two reference platforms, and the same seven-instruction worked
+example across all of them.
+
+The course materials, lab skeletons, and CI pipelines are open
+source at~\cite{merlinv-design} under CC-BY-SA-4.0 (text) and
+GPL-2.0-only / Apache-2.0 (code).  We invite instructors at
+other institutions to adopt, fork, and contribute back.
+
+% ---------------------------------------------------------------
+\bibliographystyle{plain}
+\bibliography{refs}
+
+\end{document}
