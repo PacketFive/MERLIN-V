@@ -89,13 +89,21 @@ Both the test inputs and the expected outputs are committed; students
 can rerun the autograder locally and see exactly what's failing
 before submitting.
 
-## Solutions branch
+## Solutions: instructor access
 
-Reference solutions live on the **`academics-solutions`** branch (the
-`academics-solutions` todo). That branch is **instructor-only** —
-distributed via private channel, not pushed to the public repo.
-Students see this directory; instructors see this directory *plus* the
-solutions branch.
+Reference solutions live on a **separate private repository**
+(`PacketFive/MERLIN-V-solutions`), not on a branch of this repo.
+The public repo (this one) ships the lab skeletons + autograder
++ CI pipelines; the private repo mirrors the same tree with the
+TODO blocks filled in.
+
+Instructors at accredited institutions can request access via
+`academics@packetfive.com`.  The workflow, reference-implementation
+crib, and instructor-agreement template are all documented in
+[`solutions-workflow/`](solutions-workflow/).
+
+Students see this directory; instructors see this directory *plus*
+the private solutions repo.
 
 ## CI / autograder pipeline
 
@@ -114,9 +122,10 @@ rolling out fixes mid-semester.
 
 The lab skeletons in this directory are released under the same
 license as the parent project. The reference solutions on the
-`academics-solutions` branch are released to instructors only on
-request; redistributing solutions is a violation of the academic
-honesty policy.
+private `PacketFive/MERLIN-V-solutions` repo are released to
+instructors only on request; redistributing solutions is a
+violation of the academic honesty policy (see
+[`solutions-workflow/INSTRUCTOR-AGREEMENT.md`](solutions-workflow/INSTRUCTOR-AGREEMENT.md)).
 
 ## Assisted-by
 
