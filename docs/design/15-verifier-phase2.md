@@ -189,8 +189,22 @@ become Phase-3:
   frame.  4 new fixtures: `stack_legal_frame` (ACCEPT),
   `stack_store_above_sp` / `stack_budget_overflow` /
   `stack_sp_clobber` (all REJECT).  18/18 fixtures pass.
-- **kfunc resolution.** Treat `jalr` through a typed kfunc-slot
-  pointer as a checked indirect call.
+- **kfunc resolution.** ✅ Landed (Phase-3.A2). Adds
+  `RVAL_PTR_KFUNC_SLOT` rval kind and `cfg.kfunc_allow[]` bitset.
+  Programs invoke a registered kfunc via the canonical sequence:
+  ```
+  addi a0, x0, <kfunc_id>          ; constant kfunc id
+  addi a7, x0, 0x143               ; MERLIN_HELPER_KFUNC_RESOLVE
+  ecall                            ; a0 -> PTR_KFUNC_SLOT(id)
+  jalr x0/ra, a0, 0                ; verified indirect call
+  ```
+  The verifier accepts only two JALR patterns: return (`rs1 == ra`)
+  and kfunc tail-call (`rs1` holds a `PTR_KFUNC_SLOT` whose id is
+  in the per-program kfunc allowlist).  Every other indirect JALR
+  is rejected with a precise diagnostic. 4 new fixtures:
+  `kfunc_call_legal` (ACCEPT), `kfunc_unallowed` /
+  `jalr_arbitrary_reg` / `jalr_unresolved_ptr` (all REJECT).
+  22/22 fixtures pass.
 - **`merlin_loop()` (callback form).** Verify the body as a
   separate verification unit with the loop-counter scalar in `a0`.
 - **CO-RE-V effect modeling.** Substitute relocation effects before

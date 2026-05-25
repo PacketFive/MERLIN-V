@@ -36,9 +36,15 @@
 #include "tnum.h"
 
 #define MERLIN_NR_HELPERS 4096
+#define MERLIN_NR_KFUNCS  4096
 
 /* The well-known helper id for "this is a bounded loop". */
 #define MERLIN_HELPER_LOOP_BOUND 0x0142
+
+/* The well-known helper id for "resolve kfunc id (in a0) into a
+ * PTR_KFUNC_SLOT in a0".  See docs/design/15-verifier-phase2.md §A2.
+ */
+#define MERLIN_HELPER_KFUNC_RESOLVE 0x0143
 
 /* ----------------------------------------------------------------------
  * Abstract value domain (per-register).
@@ -49,6 +55,7 @@ enum merlin_rval_kind {
 	RVAL_PTR_CTX,
 	RVAL_PTR_STACK,
 	RVAL_PTR_HELPER_RET,
+	RVAL_PTR_KFUNC_SLOT,
 };
 
 struct merlin_rval {
@@ -56,7 +63,7 @@ struct merlin_rval {
 	struct merlin_scalar s; /* SCALAR: value range + tnum   */
 	int64_t off_min; /* PTR_*:  signed offset range  */
 	int64_t off_max;
-	uint32_t helper_id; /* PTR_HELPER_RET: helper id    */
+	uint32_t helper_id; /* PTR_HELPER_RET, PTR_KFUNC_SLOT id */
 };
 
 struct merlin_vstate {
@@ -69,6 +76,7 @@ struct merlin_vstate {
  * ---------------------------------------------------------------------- */
 struct merlin_verifier_cfg {
 	uint8_t helper_allow[MERLIN_NR_HELPERS / 8];
+	uint8_t kfunc_allow[MERLIN_NR_KFUNCS / 8];
 	uint32_t max_stack_bytes;
 	bool allow_back_edges;
 	bool verbose;

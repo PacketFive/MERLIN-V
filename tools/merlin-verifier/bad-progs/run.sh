@@ -169,6 +169,30 @@ assert_reject "stack_budget_overflow" \
 assert_reject "stack_sp_clobber" \
     0x00108133 0x00008067
 
+# --- Phase-3.A2 cases (kfunc resolution) -------------------------------
+
+# Legal kfunc tail-call: resolve id 0x001 then jalr through a0.
+#   addi a0, x0, 1          ; a0 = kfunc id 0x001
+#   addi a7, x0, 0x143      ; MERLIN_HELPER_KFUNC_RESOLVE
+#   ecall                   ; a0 -> PTR_KFUNC_SLOT(0x001)
+#   jalr x0, a0, 0          ; tail-call
+assert_accept "kfunc_call_legal" \
+    0x00100513 0x14300893 0x00000073 0x00050067
+
+# kfunc id NOT in the per-program allowlist (0x234).
+assert_reject "kfunc_unallowed" \
+    0x23400513 0x14300893 0x00000073 0x00050067
+
+# Indirect jalr through an arbitrary scalar register.
+#   addi t0, x0, 100; jalr x0, t0, 0
+assert_reject "jalr_arbitrary_reg" \
+    0x06400293 0x00028067
+
+# Indirect jalr through ctx pointer (a0 holds PTR_CTX at entry).
+#   jalr x0, a0, 0
+assert_reject "jalr_unresolved_ptr" \
+    0x00050067
+
 echo
 echo "== Summary: $pass passed, $fail failed =="
 exit $fail

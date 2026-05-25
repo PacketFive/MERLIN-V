@@ -71,6 +71,8 @@ static const char *rval_kind_name(enum merlin_rval_kind k)
 		return "PtrStack";
 	case RVAL_PTR_HELPER_RET:
 		return "PtrHelperRet";
+	case RVAL_PTR_KFUNC_SLOT:
+		return "PtrKfuncSlot";
 	}
 	return "?";
 }
@@ -129,7 +131,8 @@ static struct merlin_rval rval_join(struct merlin_rval a, struct merlin_rval b)
 	if (a.kind == RVAL_SCALAR) {
 		return rv_scalar(scalar_join(a.s, b.s));
 	}
-	if (a.kind == RVAL_PTR_HELPER_RET) {
+	if (a.kind == RVAL_PTR_HELPER_RET ||
+	    a.kind == RVAL_PTR_KFUNC_SLOT) {
 		if (a.helper_id != b.helper_id)
 			return rv_scalar_top();
 		return a;
@@ -153,6 +156,7 @@ static bool rval_equal(struct merlin_rval a, struct merlin_rval b)
 	case RVAL_SCALAR:
 		return scalar_equal(a.s, b.s);
 	case RVAL_PTR_HELPER_RET:
+	case RVAL_PTR_KFUNC_SLOT:
 		return a.helper_id == b.helper_id;
 	case RVAL_PTR_CTX:
 	case RVAL_PTR_STACK:
@@ -196,6 +200,19 @@ static inline void helper_set(struct merlin_verifier_cfg *cfg, uint32_t id)
 		cfg->helper_allow[id / 8] |= (1u << (id % 8));
 }
 
+static inline bool kfunc_allowed(const struct merlin_verifier_cfg *cfg,
+				 uint32_t id)
+{
+	if (id >= MERLIN_NR_KFUNCS)
+		return false;
+	return (cfg->kfunc_allow[id / 8] >> (id % 8)) & 1u;
+}
+static inline void kfunc_set(struct merlin_verifier_cfg *cfg, uint32_t id)
+{
+	if (id < MERLIN_NR_KFUNCS)
+		cfg->kfunc_allow[id / 8] |= (1u << (id % 8));
+}
+
 void merlin_verifier_cfg_init_for_mvdp(struct merlin_verifier_cfg *cfg)
 {
 	memset(cfg, 0, sizeof(*cfg));
@@ -212,6 +229,7 @@ void merlin_verifier_cfg_init_for_mvdp(struct merlin_verifier_cfg *cfg)
 	helper_set(cfg, 0x0121); /* get_smp_processor_id */
 	helper_set(cfg, 0x0140); /* prog_tail_call   */
 	helper_set(cfg, MERLIN_HELPER_LOOP_BOUND); /* 0x0142 */
+	helper_set(cfg, MERLIN_HELPER_KFUNC_RESOLVE); /* 0x0143 */
 	helper_set(cfg, 0x0150); /* ringbuf_reserve  */
 	helper_set(cfg, 0x0151); /* ringbuf_submit   */
 	helper_set(cfg, 0x0152); /* ringbuf_discard  */
@@ -224,6 +242,19 @@ void merlin_verifier_cfg_init_for_mvdp(struct merlin_verifier_cfg *cfg)
 	helper_set(cfg, 0x0207); /* mvdp_store_bytes */
 	helper_set(cfg, 0x0208); /* mvdp_fib_lookup  */
 	helper_set(cfg, 0x0209); /* mvdp_get_time_ns */
+
+	/* Default per-program-type kfunc table.  Mirrors a small,
+	 * representative subset; the real registry will be populated
+	 * at load time from the program-type registry (see
+	 * docs/design/15-verifier-phase2.md §A2).
+	 *
+	 * The kfunc id space is SEPARATE from the helper id space
+	 * (it is selected by the PTR_KFUNC_SLOT kind on the jalr
+	 * target, not by `a7` on an ecall), so small ids are fine.
+	 */
+	kfunc_set(cfg, 0x001); /* example: route_lookup       */
+	kfunc_set(cfg, 0x002); /* example: skb_pull_inline    */
+	kfunc_set(cfg, 0x003); /* example: csum_partial       */
 }
 
 /* ---------- transfer functions for a single instruction --------------- */
@@ -322,6 +353,65 @@ static void step_insn(struct merlin_insn in, struct merlin_vstate *st,
 				} else {
 					*pending_loop_bound = 0xffffffff;
 				}
+			}
+			if (hid == MERLIN_HELPER_KFUNC_RESOLVE) {
+				/* Phase-3.A2: resolve the kfunc id (in a0,
+				 * which must be a constant scalar) against
+				 * the per-program kfunc allowlist.  On
+				 * success, a0 is set to PTR_KFUNC_SLOT
+				 * tagged with the resolved id, ready for a
+				 * subsequent `jalr ra/x0, a0, 0` (or a
+				 * register copy thereof) to invoke.
+				 */
+				a0 = st->x[10];
+				if (a0.kind != RVAL_SCALAR ||
+				    !scalar_is_const(a0.s)) {
+					REJECT("kfunc_resolve with non-const "
+					       "a0 (kind=%s)",
+					       rval_kind_name(a0.kind));
+				} else if (!kfunc_allowed(
+						   cfg,
+						   (uint32_t)a0.s.tn.value)) {
+					REJECT("kfunc id 0x%x not in "
+					       "per-program kfunc allowlist",
+					       (uint32_t)a0.s.tn.value);
+				} else {
+					DIAG("kfunc id 0x%x resolved",
+					     (uint32_t)a0.s.tn.value);
+					/* Clobber caller-saved, then set
+					 * a0 to PTR_KFUNC_SLOT.
+					 */
+					{
+						int r;
+						for (r = 11; r <= 17; r++)
+							st->x[r] = rv_uninit();
+						for (r = 5; r <= 7; r++)
+							st->x[r] = rv_uninit();
+						for (r = 28; r <= 31; r++)
+							st->x[r] = rv_uninit();
+					}
+					st->x[10] = (struct merlin_rval){
+						.kind = RVAL_PTR_KFUNC_SLOT,
+						.helper_id =
+							(uint32_t)a0.s.tn.value,
+					};
+					return;
+				}
+				/* Fell through after a REJECT: clobber and
+				 * continue so the verifier still tracks
+				 * caller-saved invalidation.
+				 */
+				st->x[10] = rv_scalar_top();
+				{
+					int r;
+					for (r = 11; r <= 17; r++)
+						st->x[r] = rv_uninit();
+					for (r = 5; r <= 7; r++)
+						st->x[r] = rv_uninit();
+					for (r = 28; r <= 31; r++)
+						st->x[r] = rv_uninit();
+				}
+				return;
 			}
 			/* Helper return convention: a0 = helper return,
  * caller-saved regs clobbered.
@@ -558,6 +648,31 @@ static void step_insn(struct merlin_insn in, struct merlin_vstate *st,
 		}
 		if (in.cls == INSN_JAL && in.rd != 0)
 			st->x[in.rd] = rv_scalar_top();
+		if (in.cls == INSN_JALR) {
+			/* Phase-3.A2: only two legal JALR patterns:
+			 *   (a) `jalr x0, ra, 0`     — function return
+			 *   (b) `jalr x0/ra, K, 0`   — kfunc invocation
+			 *                              where reg K holds a
+			 *                              PTR_KFUNC_SLOT.
+			 * Any other JALR is an unverified indirect call
+			 * and is rejected.
+			 */
+			struct merlin_rval tgt = st->x[in.rs1];
+			bool is_return = (in.rs1 == 1);   /* ra */
+			bool is_kfunc =
+				(tgt.kind == RVAL_PTR_KFUNC_SLOT) &&
+				kfunc_allowed(cfg, tgt.helper_id);
+			if (!is_return && !is_kfunc) {
+				REJECT("indirect jalr through %s "
+				       "(kind=%s); not return, not "
+				       "kfunc-slot",
+				       xreg(in.rs1),
+				       rval_kind_name(tgt.kind));
+			} else if (is_kfunc) {
+				DIAG("kfunc-slot jalr to id 0x%x OK",
+				     tgt.helper_id);
+			}
+		}
 		return;
 	}
 

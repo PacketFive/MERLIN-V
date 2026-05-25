@@ -163,6 +163,7 @@ enum merlin_rval_kind {
 	RVAL_PTR_CTX,
 	RVAL_PTR_STACK,
 	RVAL_PTR_HELPER_RET,
+	RVAL_PTR_KFUNC_SLOT,
 };
 
 struct merlin_rval {
@@ -170,7 +171,7 @@ struct merlin_rval {
 	struct merlin_scalar  s;        /* SCALAR: value range + tnum */
 	s64                   off_min;  /* PTR_*:  offset range       */
 	s64                   off_max;
-	u32                   helper_id;
+	u32                   helper_id; /* PTR_HELPER_RET, PTR_KFUNC_SLOT */
 };
 
 struct merlin_vstate {
@@ -183,8 +184,16 @@ struct merlin_vstate {
  */
 #define MERLIN_HELPER_LOOP_BOUND   0x0142
 
+/* The well-known helper id for "resolve kfunc id (in a0) into a
+ * PTR_KFUNC_SLOT in a0".  See docs/design/15-verifier-phase2.md §A2.
+ */
+#define MERLIN_HELPER_KFUNC_RESOLVE 0x0143
+
+#define MERLIN_MAX_KFUNC_ID  4095
+
 struct merlin_verifier_cfg {
 	u8   helper_allow[MERLIN_MAX_HELPER_ID / 8 + 1]; /* bitset       */
+	u8   kfunc_allow[MERLIN_MAX_KFUNC_ID / 8 + 1];
 	u32  max_stack_bytes;
 	bool allow_back_edges;
 	bool verbose;
