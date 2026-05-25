@@ -61,3 +61,8 @@ docs/AI/AGENT_INSTRUCTIONS.md
 
 # Local-only RFC cover letter draft (not for upstream until ready)
 docs/rfc/cover-letter.md
+
+# Verilog / iverilog simulator artifacts
+*.vvp
+*.vcd
+*.fst

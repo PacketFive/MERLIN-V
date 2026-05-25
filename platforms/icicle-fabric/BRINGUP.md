@@ -28,38 +28,56 @@ executes it natively."
 
 ## 2. Pick the soft core
 
-The `rtl/merlin_core.v` shipped here is a **simulation stub**.
-It runs in iverilog and lets you validate the data path, but it
-will not place-and-route in Libero (too many magic numbers; no
-real pipeline).
+`rtl/merlin_core.v` is a **simulation stub** retained for fast
+AXI-Lite / memory-protocol smoke testing.  It is not synthesisable.
+For real hardware, use **PicoRV32** via the wrapper that already
+ships in the tree.
 
-Pick **one** real soft core and wrap it to match the imem/dmem
-port interface in `merlin_core.v`:
+### Option A — PicoRV32 (default, vendored)
 
-### Option A — VexRiscv (recommended)
+PicoRV32 is vendored at
+`rtl/vendor/picorv32/picorv32.v` (YosysHQ, ISC licence) and is
+wrapped by `rtl/merlin_core_picorv32.v`.  No additional download
+or codegen is needed; the wrapper presents the same external
+ports as the stub so `merlin_top.v` is unchanged.
+
+The wrapper configures PicoRV32 for RV32I only (no `M`, no `C`,
+no `A`, no IRQ, no PCPI), `PROGADDR_RESET=0`,
+`STACKADDR=0x10000400`.  Programs are wrapped in a tiny shim
+that writes the result to the MMIO halt register (see
+`rtl/README.md` for the address map).
+
+Smoke test:
 
 ```bash
-# Generate the Verilog from VexRiscv's Scala source.
+cd tb
+make picorv32
+```
+
+Expected:
+
+```
+[tb] ETH/IPv4: exit=2 (PASS, expected 2, polls=19)
+[tb] ETH/RARP: exit=1 (PASS, expected 1, polls=18)
+[tb] all good (picorv32 core)
+```
+
+### Option B — VexRiscv-Murax
+
+Not vendored in this tree (Scala codegen, larger).  Bring it in if
+you need the `M`/`C` extensions or the lower CPI:
+
+```bash
 git clone https://github.com/SpinalHDL/VexRiscv
 cd VexRiscv
 sbt "runMain vexriscv.demo.GenSmallest"
-# Produces VexRiscv.v in cwd.  ~3000 LUTs on PolarFire.
+# Produces VexRiscv.v; ~3000 LUTs on PolarFire.
 ```
 
-Then in `rtl/merlin_core.v`, replace the stub body with an
-instance of `VexRiscv`, mapping its `iBus_cmd`/`iBus_rsp` to the
-`imem_*` ports here, and `dBus_cmd`/`dBus_rsp` to `dmem_*`.
-
-### Option B — PicoRV32
-
-```bash
-# Single-file Verilog; just clone and use picorv32.v.
-git clone https://github.com/YosysHQ/picorv32
-```
-
-PicoRV32 has a unified memory bus.  Multiplex between IMEM and
-DMEM based on the `mem_instr` flag.  ~750 LUTs; simpler than
-VexRiscv but slower (multi-cycle per insn).
+Then write a `rtl/merlin_core_vexriscv.v` wrapper analogous to
+`merlin_core_picorv32.v` (map `iBus_cmd`/`iBus_rsp` to `imem_*`
+and `dBus_cmd`/`dBus_rsp` to `dmem_*`).  A `make vexriscv` target
+in `tb/Makefile` can follow the PicoRV32 pattern.
 
 ### Option C — Microchip MiV (vendor IP)
 
@@ -70,14 +88,15 @@ Kit's chip).  Easiest to drop into SmartDesign; least open.
 
 ## 3. iverilog smoke (verify the data path)
 
-Before touching Libero, confirm the RTL works with the stub core:
+Run both testbenches before touching Libero:
 
 ```bash
 cd tb
-make
+make             # stub  (validates AXI-Lite + memories quickly)
+make picorv32    # real RV32I core through PicoRV32
 ```
 
-Expected:
+Expected (stub):
 
 ```
 [tb] ETH/IPv4: exit=2 (PASS, expected 2, cycles=5)
@@ -85,12 +104,24 @@ Expected:
 [tb] all good
 ```
 
-This validates:
+Expected (PicoRV32):
+
+```
+[tb] ETH/IPv4: exit=2 (PASS, expected 2, polls=19)
+[tb] ETH/RARP: exit=1 (PASS, expected 1, polls=18)
+[tb] all good (picorv32 core)
+```
+
+Both validate:
 - AXI-Lite slave handshakes (one-cycle aw+w fire; bvalid 1 cycle later).
 - IMEM upload via auto-incrementing `IMEM_WSEL`.
 - DMEM upload via auto-incrementing `DMEM_WSEL`.
 - Core boots from address 0 on `CTRL = 0x1`.
-- Core halts on `jalr x0, ra, 0` and latches `a0` into `EXIT`.
+
+The PicoRV32 testbench also exercises:
+- Real RV32I instruction decode / execution.
+- Multi-cycle bus handshake with the BRAM-latency-aware adapter.
+- The MMIO halt register (write to `0x20000000` halts + latches).
 
 ---
 
