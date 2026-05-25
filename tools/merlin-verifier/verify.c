@@ -247,6 +247,31 @@ static bool ptr_kind(enum merlin_rval_kind k)
 	       k == RVAL_PTR_HELPER_RET;
 }
 
+/* Width in bytes of a load/store, derived from the decoded kind. */
+static unsigned ld_width(enum merlin_load_kind k)
+{
+	switch (k) {
+	case LD_LB:
+	case LD_LBU: return 1;
+	case LD_LH:
+	case LD_LHU: return 2;
+	case LD_LW:
+	case LD_LWU: return 4;
+	case LD_LD:  return 8;
+	}
+	return 0;
+}
+static unsigned st_width(enum merlin_store_kind k)
+{
+	switch (k) {
+	case ST_SB: return 1;
+	case ST_SH: return 2;
+	case ST_SW: return 4;
+	case ST_SD: return 8;
+	}
+	return 0;
+}
+
 /*
  * step_insn - apply transfer function for one decoded instruction.
  * Updates *st in place.  Sets *rejected if a safety check fails.
@@ -324,6 +349,35 @@ static void step_insn(struct merlin_insn in, struct merlin_vstate *st,
 		if (!ptr_kind(k)) {
 			REJECT("load through non-pointer reg %s (kind=%s)",
 			       xreg(in.rs1), rval_kind_name(k));
+		} else if (k == RVAL_PTR_STACK) {
+			/* Stack-discipline: the entire access window
+			 * must lie inside the declared frame budget.
+			 *
+			 *   abs_off = base.off + imm
+			 *   width   = 1 / 2 / 4 / 8
+			 *
+			 *   require:  -max_stack_bytes <= abs_off
+			 *             abs_off + width <= 0
+			 *
+			 * Both endpoints of base.off_min..base.off_max
+			 * are checked.
+			 */
+			int64_t lo = st->x[in.rs1].off_min + in.imm;
+			int64_t hi = st->x[in.rs1].off_max + in.imm;
+			unsigned w = ld_width(in.ld_kind);
+			int64_t budget = (int64_t)cfg->max_stack_bytes;
+			if (lo < -budget || (hi + (int64_t)w) > 0) {
+				REJECT("stack load out of frame "
+				       "(off=[%lld,%lld]+%u, budget=%lld)",
+				       (long long)lo, (long long)hi, w,
+				       (long long)budget);
+			}
+		}
+		if (in.rd == 2) {
+			REJECT("load into sp (sp may only be set by "
+			       "addi sp, sp, K)");
+			st->x[2] = rv_scalar_top();
+			return;
 		}
 		if (in.rd != 0)
 			st->x[in.rd] = rv_scalar_top();
@@ -334,6 +388,17 @@ static void step_insn(struct merlin_insn in, struct merlin_vstate *st,
 		if (!ptr_kind(k)) {
 			REJECT("store through non-pointer reg %s (kind=%s)",
 			       xreg(in.rs1), rval_kind_name(k));
+		} else if (k == RVAL_PTR_STACK) {
+			int64_t lo = st->x[in.rs1].off_min + in.imm;
+			int64_t hi = st->x[in.rs1].off_max + in.imm;
+			unsigned w = st_width(in.st_kind);
+			int64_t budget = (int64_t)cfg->max_stack_bytes;
+			if (lo < -budget || (hi + (int64_t)w) > 0) {
+				REJECT("stack store out of frame "
+				       "(off=[%lld,%lld]+%u, budget=%lld)",
+				       (long long)lo, (long long)hi, w,
+				       (long long)budget);
+			}
 		}
 		return;
 	}
@@ -343,12 +408,34 @@ static void step_insn(struct merlin_insn in, struct merlin_vstate *st,
 		struct merlin_rval src = st->x[in.rs1];
 		if (in.alu_op == ALU_ADD) {
 			if (in.rs1 == 0) {
+				if (in.rd == 2) {
+					REJECT("write to sp from non-sp "
+					       "source (only addi sp, sp, K "
+					       "permitted)");
+					st->x[2] = rv_scalar_top();
+					return;
+				}
 				if (in.rd != 0)
 					st->x[in.rd] = rv_const(in.imm);
 				return;
 			}
+			/* Stack-discipline: sp may only be updated via
+			 * addi sp, sp, K (rs1 must already be sp).
+			 */
+			if (in.rd == 2 && in.rs1 != 2) {
+				REJECT("write to sp from non-sp source %s",
+				       xreg(in.rs1));
+				st->x[2] = rv_scalar_top();
+				return;
+			}
 			if (src.kind == RVAL_SCALAR) {
 				struct merlin_scalar k = scalar_const(in.imm);
+				if (in.rd == 2) {
+					REJECT("addi sp, sp, K applied to "
+					       "scalar-kind sp");
+					st->x[2] = rv_scalar_top();
+					return;
+				}
 				if (in.rd != 0)
 					st->x[in.rd] =
 						rv_scalar(scalar_add(src.s, k));
@@ -360,44 +447,95 @@ static void step_insn(struct merlin_insn in, struct merlin_vstate *st,
 					struct merlin_rval r = src;
 					r.off_min += in.imm;
 					r.off_max += in.imm;
+					if (in.rd == 2 &&
+					    src.kind == RVAL_PTR_STACK) {
+						int64_t budget =
+							(int64_t)cfg
+								->max_stack_bytes;
+						if (r.off_min < -budget) {
+							REJECT("sp underflow: "
+							       "new sp.off=%lld "
+							       "below budget %lld",
+							       (long long)
+								       r.off_min,
+							       (long long)
+								       budget);
+						}
+						if (r.off_max > 0) {
+							REJECT("sp above entry: "
+							       "new sp.off=%lld",
+							       (long long)
+								       r.off_max);
+						}
+					}
 					st->x[in.rd] = r;
 				}
+				return;
+			}
+			if (in.rd == 2) {
+				REJECT("addi sp, ?, K from non-pointer src "
+				       "(kind=%s)",
+				       rval_kind_name(src.kind));
+				st->x[2] = rv_scalar_top();
 				return;
 			}
 			if (in.rd != 0)
 				st->x[in.rd] = rv_scalar_top();
 			return;
 		}
-		/* Other ALU-imm: result is a scalar (loses pointer kind). */
+		/* Other ALU-imm (not ADD): result is a scalar
+		 * (loses pointer kind).
+		 */
+		if (in.rd == 2) {
+			REJECT("non-add ALU writing to sp");
+			st->x[2] = rv_scalar_top();
+			return;
+		}
 		if (in.rd != 0)
 			st->x[in.rd] = rv_scalar_top();
 		return;
 	}
 	if (in.cls == INSN_LUI) {
+		if (in.rd == 2) {
+			REJECT("lui sp clobbers stack pointer");
+			st->x[2] = rv_scalar_top();
+			return;
+		}
 		if (in.rd != 0)
 			st->x[in.rd] = rv_const(in.imm);
 		return;
 	}
 	if (in.cls == INSN_AUIPC) {
+		if (in.rd == 2) {
+			REJECT("auipc sp clobbers stack pointer");
+			st->x[2] = rv_scalar_top();
+			return;
+		}
 		if (in.rd != 0)
 			st->x[in.rd] = rv_scalar_top();
 		return;
 	}
 	if (in.cls == INSN_ALU_REG) {
 		/* Pointer arithmetic on two unconstrained values is
- * unsound: reject.  Otherwise: scalar top.
- */
+		 * unsound: reject.  Otherwise: scalar top.
+		 */
 		bool p1 = ptr_kind(st->x[in.rs1].kind);
 		bool p2 = ptr_kind(st->x[in.rs2].kind);
 		if (p1 && p2) {
 			REJECT("ALU on two pointers (%s, %s)", xreg(in.rs1),
 			       xreg(in.rs2));
 		}
+		if (in.rd == 2) {
+			REJECT("reg-ALU writing to sp (only addi sp, sp, K "
+			       "permitted)");
+			st->x[2] = rv_scalar_top();
+			return;
+		}
 		if (in.rd != 0) {
 			if (p1 || p2) {
 				/* ptr +/- scalar -> propagate ptr with
- * a widened offset range.
- */
+				 * a widened offset range.
+				 */
 				struct merlin_rval ptr = p1 ? st->x[in.rs1] :
 							      st->x[in.rs2];
 				ptr.off_min = -(1ll << 30);
@@ -413,6 +551,11 @@ static void step_insn(struct merlin_insn in, struct merlin_vstate *st,
 	/* Branches / jumps: terminator; CFG handles successors. */
 	if (in.cls == INSN_BRANCH || in.cls == INSN_JAL ||
 	    in.cls == INSN_JALR) {
+		if (in.cls == INSN_JAL && in.rd == 2) {
+			REJECT("JAL writing return address into sp");
+			st->x[2] = rv_scalar_top();
+			return;
+		}
 		if (in.cls == INSN_JAL && in.rd != 0)
 			st->x[in.rd] = rv_scalar_top();
 		return;

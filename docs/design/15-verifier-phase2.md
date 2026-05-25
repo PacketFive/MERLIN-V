@@ -182,8 +182,13 @@ Phase-2 closes the LKML "show me your safety story" gate but does
 not close everything in `06-verifier.md §2`. The remaining items
 become Phase-3:
 
-- **Stack discipline.** Track `sp` deltas at function entry; reject
-  stores below `sp` or above the declared frame.
+- **Stack discipline.** ✅ Landed (Phase-3.A1). Track `sp` deltas
+  from entry; reject any write to `sp` other than `addi sp, sp, K`;
+  enforce `[-cfg.max_stack_bytes, 0)` as the valid frame range;
+  reject stores/loads whose [abs_off, abs_off+width) escapes the
+  frame.  4 new fixtures: `stack_legal_frame` (ACCEPT),
+  `stack_store_above_sp` / `stack_budget_overflow` /
+  `stack_sp_clobber` (all REJECT).  18/18 fixtures pass.
 - **kfunc resolution.** Treat `jalr` through a typed kfunc-slot
   pointer as a checked indirect call.
 - **`merlin_loop()` (callback form).** Verify the body as a

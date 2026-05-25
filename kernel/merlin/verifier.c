@@ -184,6 +184,31 @@ static bool ptr_kind(enum merlin_rval_kind k)
 	       k == RVAL_PTR_HELPER_RET;
 }
 
+/* Width in bytes of a load/store, derived from the decoded kind. */
+static unsigned ld_width(enum merlin_load_kind k)
+{
+	switch (k) {
+	case LD_LB:
+	case LD_LBU: return 1;
+	case LD_LH:
+	case LD_LHU: return 2;
+	case LD_LW:
+	case LD_LWU: return 4;
+	case LD_LD:  return 8;
+	}
+	return 0;
+}
+static unsigned st_width(enum merlin_store_kind k)
+{
+	switch (k) {
+	case ST_SB: return 1;
+	case ST_SH: return 2;
+	case ST_SW: return 4;
+	case ST_SD: return 8;
+	}
+	return 0;
+}
+
 /* Transfer function for one decoded instruction (in-place state). */
 static void step_insn(struct merlin_insn in, struct merlin_vstate *st,
 		      const struct merlin_verifier_cfg *cfg, u32 *rejected_ptr,
@@ -242,6 +267,23 @@ static void step_insn(struct merlin_insn in, struct merlin_vstate *st,
 		if (!ptr_kind(k))
 			REJECT(in, "load through non-pointer reg %s (kind=%s)",
 			       xreg(in.rs1), rval_kind_name(k));
+		else if (k == RVAL_PTR_STACK) {
+			s64 lo = st->x[in.rs1].off_min + in.imm;
+			s64 hi = st->x[in.rs1].off_max + in.imm;
+			unsigned w = ld_width(in.ld_kind);
+			s64 budget = (s64)cfg->max_stack_bytes;
+			if (lo < -budget || (hi + (s64)w) > 0)
+				REJECT(in,
+				       "stack load out of frame "
+				       "(off=[%lld,%lld]+%u, budget=%lld)",
+				       (long long)lo, (long long)hi, w,
+				       (long long)budget);
+		}
+		if (in.rd == 2) {
+			REJECT(in, "load into sp");
+			st->x[2] = rv_scalar_top();
+			goto out;
+		}
 		if (in.rd != 0)
 			st->x[in.rd] = rv_scalar_top();
 		goto out;
@@ -251,6 +293,18 @@ static void step_insn(struct merlin_insn in, struct merlin_vstate *st,
 		if (!ptr_kind(k))
 			REJECT(in, "store through non-pointer reg %s (kind=%s)",
 			       xreg(in.rs1), rval_kind_name(k));
+		else if (k == RVAL_PTR_STACK) {
+			s64 lo = st->x[in.rs1].off_min + in.imm;
+			s64 hi = st->x[in.rs1].off_max + in.imm;
+			unsigned w = st_width(in.st_kind);
+			s64 budget = (s64)cfg->max_stack_bytes;
+			if (lo < -budget || (hi + (s64)w) > 0)
+				REJECT(in,
+				       "stack store out of frame "
+				       "(off=[%lld,%lld]+%u, budget=%lld)",
+				       (long long)lo, (long long)hi, w,
+				       (long long)budget);
+		}
 		goto out;
 	}
 
@@ -258,12 +312,32 @@ static void step_insn(struct merlin_insn in, struct merlin_vstate *st,
 		struct merlin_rval src = st->x[in.rs1];
 		if (in.alu_op == ALU_ADD) {
 			if (in.rs1 == 0) {
+				if (in.rd == 2) {
+					REJECT(in,
+					       "write to sp from non-sp src "
+					       "(only addi sp, sp, K permitted)");
+					st->x[2] = rv_scalar_top();
+					goto out;
+				}
 				if (in.rd != 0)
 					st->x[in.rd] = rv_const(in.imm);
 				goto out;
 			}
+			if (in.rd == 2 && in.rs1 != 2) {
+				REJECT(in,
+				       "write to sp from non-sp source %s",
+				       xreg(in.rs1));
+				st->x[2] = rv_scalar_top();
+				goto out;
+			}
 			if (src.kind == RVAL_SCALAR) {
 				struct merlin_scalar k = scalar_const(in.imm);
+				if (in.rd == 2) {
+					REJECT(in,
+					       "addi sp,sp,K from scalar-kind sp");
+					st->x[2] = rv_scalar_top();
+					goto out;
+				}
 				if (in.rd != 0)
 					st->x[in.rd] =
 						rv_scalar(scalar_add(src.s, k));
@@ -275,12 +349,44 @@ static void step_insn(struct merlin_insn in, struct merlin_vstate *st,
 					struct merlin_rval r = src;
 					r.off_min += in.imm;
 					r.off_max += in.imm;
+					if (in.rd == 2 &&
+					    src.kind == RVAL_PTR_STACK) {
+						s64 budget = (s64)cfg
+								     ->max_stack_bytes;
+						if (r.off_min < -budget)
+							REJECT(in,
+							       "sp underflow: "
+							       "new sp.off=%lld "
+							       "below budget %lld",
+							       (long long)
+								       r.off_min,
+							       (long long)
+								       budget);
+						if (r.off_max > 0)
+							REJECT(in,
+							       "sp above entry: "
+							       "new sp.off=%lld",
+							       (long long)
+								       r.off_max);
+					}
 					st->x[in.rd] = r;
 				}
 				goto out;
 			}
+			if (in.rd == 2) {
+				REJECT(in,
+				       "addi sp,?,K from non-pointer src (kind=%s)",
+				       rval_kind_name(src.kind));
+				st->x[2] = rv_scalar_top();
+				goto out;
+			}
 			if (in.rd != 0)
 				st->x[in.rd] = rv_scalar_top();
+			goto out;
+		}
+		if (in.rd == 2) {
+			REJECT(in, "non-add ALU writing to sp");
+			st->x[2] = rv_scalar_top();
 			goto out;
 		}
 		if (in.rd != 0)
@@ -288,11 +394,21 @@ static void step_insn(struct merlin_insn in, struct merlin_vstate *st,
 		goto out;
 	}
 	if (in.cls == INSN_LUI) {
+		if (in.rd == 2) {
+			REJECT(in, "lui sp clobbers stack pointer");
+			st->x[2] = rv_scalar_top();
+			goto out;
+		}
 		if (in.rd != 0)
 			st->x[in.rd] = rv_const(in.imm);
 		goto out;
 	}
 	if (in.cls == INSN_AUIPC) {
+		if (in.rd == 2) {
+			REJECT(in, "auipc sp clobbers stack pointer");
+			st->x[2] = rv_scalar_top();
+			goto out;
+		}
 		if (in.rd != 0)
 			st->x[in.rd] = rv_scalar_top();
 		goto out;
@@ -303,6 +419,12 @@ static void step_insn(struct merlin_insn in, struct merlin_vstate *st,
 		if (p1 && p2)
 			REJECT(in, "ALU on two pointers (%s, %s)", xreg(in.rs1),
 			       xreg(in.rs2));
+		if (in.rd == 2) {
+			REJECT(in,
+			       "reg-ALU writing to sp (only addi sp, sp, K)");
+			st->x[2] = rv_scalar_top();
+			goto out;
+		}
 		if (in.rd != 0) {
 			if (p1 || p2) {
 				struct merlin_rval ptr = p1 ? st->x[in.rs1] :
@@ -319,6 +441,11 @@ static void step_insn(struct merlin_insn in, struct merlin_vstate *st,
 
 	if (in.cls == INSN_BRANCH || in.cls == INSN_JAL ||
 	    in.cls == INSN_JALR) {
+		if (in.cls == INSN_JAL && in.rd == 2) {
+			REJECT(in, "JAL writing return addr into sp");
+			st->x[2] = rv_scalar_top();
+			goto out;
+		}
 		if (in.cls == INSN_JAL && in.rd != 0)
 			st->x[in.rd] = rv_scalar_top();
 		goto out;

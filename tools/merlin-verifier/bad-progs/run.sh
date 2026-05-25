@@ -148,6 +148,27 @@ assert_accept "join_scalars" \
 #   funct7=0 rs2=10 rs1=2 funct3=0 rd=8 op=0x33 = 0x00a10433
 assert_reject "alu_two_ptrs" 0x00a10433 0x00008067
 
+# --- Phase-3.A1 cases (stack discipline) -------------------------------
+
+# Legal frame: addi sp, sp, -16; sw a0, 8(sp); lw a1, 8(sp);
+#              addi sp, sp, 16; ret
+assert_accept "stack_legal_frame" \
+    0xff010113 0x00a12423 0x00812583 0x01010113 0x00008067
+
+# Store above sp (offset 16 on a 16-byte frame leaves the frame):
+# addi sp, sp, -16; sw a0, 16(sp); ret
+assert_reject "stack_store_above_sp" \
+    0xff010113 0x00a12823 0x00008067
+
+# Frame budget overflow (default budget 512; allocate 1024):
+# addi sp, sp, -1024; ret
+assert_reject "stack_budget_overflow" \
+    0xc0010113 0x00008067
+
+# sp clobber: add sp, ra, ra; ret
+assert_reject "stack_sp_clobber" \
+    0x00108133 0x00008067
+
 echo
 echo "== Summary: $pass passed, $fail failed =="
 exit $fail
