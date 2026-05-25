@@ -14,7 +14,7 @@ CFLAGS  += -I$(DESIGN_UAPI)
 LDLIBS  := -lelf
 
 TARGET  := merlin-verifier
-SRCS    := merlin-verifier.c verify.c decode.c
+SRCS    := merlin-verifier.c verify.c cfg.c decode.c
 OBJS    := $(SRCS:.c=.o)
 
 EXAMPLE_OBJ := drop_all.merlin.o
@@ -25,7 +25,7 @@ all: $(TARGET)
 $(TARGET): $(OBJS)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
-%.o: %.c decode.h verify.h
+%.o: %.c decode.h verify.h cfg.h tnum.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 example: $(EXAMPLE_OBJ)

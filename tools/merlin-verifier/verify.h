@@ -1,30 +1,29 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
- * verify.h - prototype abstract-interpretation verifier for MERLIN-V.
+ * verify.h - abstract-interpretation verifier for MERLIN-V (Phase 2).
  *
- * Per docs/design/06-verifier.md §3, the verifier's domain is:
+ * Phase 2 (this file) adds, over the linear-pass Phase 1:
  *
- *   register -> { Unknown, Scalar{range,align}, Ptr{root,off-range} }
+ *   - CFG construction with reducibility check (cfg.h/c).
+ *   - Worklist abstract interpretation over basic blocks.
+ *   - State joins at block entry (per-register tnum + range merge).
+ *   - Scalar range tracking (signed + unsigned + tnum mask).
+ *   - Pointer offset bounds (off_min..off_max) per typed root.
+ *   - merlin_loop_bound() helper recognition for bounded loops:
  *
- * For the prototype, we implement a useful subset:
+ *         li a7, MERLIN_HELPER_LOOP_BOUND   (id 0x0142)
+ *         li a0, <const>                    (max iterations)
+ *         ecall
  *
- *   - Unknown (top)
- *   - ConstU64(value)            full constant value known
- *   - ScalarUnknown              integer with unknown value
- *   - PtrCtx{off}                pointer to ctx, fixed offset
- *   - PtrStack{off}              pointer to current frame, fixed offset
- *   - PtrHelperRet{helper_id}    just-returned-from-helper pointer
+ *     A subsequent back edge whose loop header is the basic block
+ *     immediately following the ecall is accepted; the runtime step
+ *     cap enforces the bound dynamically.
  *
- * This is enough to:
- *   - prove the helper-call pattern: `li a7, K; ecall` with K constant
- *     in the allowlist, and reject any ecall without it;
- *   - prove every load/store address derives from a typed root;
- *   - reject any forbidden instruction (decode.c does the classifying);
- *   - reject any back-edge (we do not yet support bounded loops).
- *
- * The output is one of:
- *   MERLIN_VERIFY_OK / MERLIN_VERIFY_REJECT, plus a human-readable
- *   diagnostic stream into stderr.
+ * Per docs/design/06-verifier.md the verifier domain mirrors the
+ * eBPF verifier's abstract domain (tnum + signed/unsigned range +
+ * pointer provenance + offset bounds) so that the eventual
+ * factoring into a shared kernel module (Option A) is a syntactic
+ * change rather than a semantic one.
  */
 #ifndef MERLIN_VERIFIER_VERIFY_H
 #define MERLIN_VERIFIER_VERIFY_H
@@ -34,53 +33,59 @@
 #include <stdint.h>
 
 #include "decode.h"
+#include "tnum.h"
 
-#define MERLIN_NR_HELPERS  4096    /* indexable allowlist                  */
+#define MERLIN_NR_HELPERS 4096
+
+/* The well-known helper id for "this is a bounded loop". */
+#define MERLIN_HELPER_LOOP_BOUND 0x0142
+
+/* ----------------------------------------------------------------------
+ * Abstract value domain (per-register).
+ * ---------------------------------------------------------------------- */
+enum merlin_rval_kind {
+	RVAL_UNINIT = 0,
+	RVAL_SCALAR,
+	RVAL_PTR_CTX,
+	RVAL_PTR_STACK,
+	RVAL_PTR_HELPER_RET,
+};
+
+struct merlin_rval {
+	enum merlin_rval_kind kind;
+	struct merlin_scalar s; /* SCALAR: value range + tnum   */
+	int64_t off_min; /* PTR_*:  signed offset range  */
+	int64_t off_max;
+	uint32_t helper_id; /* PTR_HELPER_RET: helper id    */
+};
+
+struct merlin_vstate {
+	struct merlin_rval x[32];
+	bool valid; /* false == bottom (no path)    */
+};
+
+/* ----------------------------------------------------------------------
+ * Configuration.
+ * ---------------------------------------------------------------------- */
+struct merlin_verifier_cfg {
+	uint8_t helper_allow[MERLIN_NR_HELPERS / 8];
+	uint32_t max_stack_bytes;
+	bool allow_back_edges;
+	bool verbose;
+
+	uint32_t step_cap; /* total transfer-function invocations */
+};
 
 enum merlin_verify_result {
-	MERLIN_VERIFY_OK     = 0,
+	MERLIN_VERIFY_OK = 0,
 	MERLIN_VERIFY_REJECT = 1,
 };
 
-struct merlin_verifier_cfg {
-	/* Bitset of permitted helper IDs.  Bit n set => helper n is in
-	 * the program-type allowlist for this verification run.
-	 */
-	uint8_t helper_allow[MERLIN_NR_HELPERS / 8];
+enum merlin_verify_result
+merlin_verify_text(const uint8_t *text, size_t text_size, uint32_t text_offset,
+		   const struct merlin_verifier_cfg *cfg, char *summary,
+		   size_t summary_len);
 
-	/* Maximum stack frame the program may declare.  Profile defaults:
-	 *   linux-rv64/default      512
-	 *   linux-rv64/sleepable    8192
-	 *   rtos-rv32/zephyr        256
-	 */
-	uint32_t max_stack_bytes;
-
-	/* Allow back-edges? RFC v1 default is false (no loops yet);
-	 * Phase 2 will gate on merlin_loop() helper.
-	 */
-	bool allow_back_edges;
-
-	bool verbose;
-};
-
-/*
- * Verify one .text.merlin.* section.  text/text_size is the decoded
- * instruction stream as a contiguous LE byte array; text_offset is
- * the byte offset within the section (for diagnostic addresses).
- *
- * Returns MERLIN_VERIFY_OK iff all checks pass.  Emits diagnostics
- * to stderr (when cfg->verbose) and to *summary (a short final line).
- */
-enum merlin_verify_result merlin_verify_text(
-	const uint8_t *text,
-	size_t text_size,
-	uint32_t text_offset,
-	const struct merlin_verifier_cfg *cfg,
-	char *summary, size_t summary_len);
-
-/* Convenience: set up a verifier_cfg with a default helper allowlist
- * derived from the program type (best-effort; MVDP today).
- */
 void merlin_verifier_cfg_init_for_mvdp(struct merlin_verifier_cfg *cfg);
 
 #endif /* MERLIN_VERIFIER_VERIFY_H */

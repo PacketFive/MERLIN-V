@@ -17,6 +17,7 @@
 #include <linux/slab.h>
 #include <linux/spinlock.h>
 #include <linux/uaccess.h>
+#include <linux/vmalloc.h>
 #include <linux/workqueue.h>
 
 #include "include/merlin_internal.h"

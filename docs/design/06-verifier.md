@@ -1,6 +1,6 @@
 # 06 — Verifier Strategy
 
-Status: sharing strategy pinned (Option B for v1); profile catalogue aligned; **user-space prototype landed (tools/merlin-verifier/, see §9)**
+Status: sharing strategy pinned (Option B for v1); profile catalogue aligned; **user-space prototype landed (tools/merlin-verifier/, see §9)**; **Phase-2 worklist analyser landed (see §10 and [15-verifier-phase2.md](15-verifier-phase2.md))**
 Owner: PacketFive
 Last reviewed: post profile + ABI decisions + first prototype
 
@@ -357,28 +357,56 @@ verifier (Option B per §4) will be a port of the same algorithm.
 | -------------------- | ------ |
 | 1. profile compliance (forbidden classes) | ✅ implemented; rejects CSR / privileged / `ebreak` / `fence.i` / FP |
 | 5. helper ABI compliance                  | ✅ implemented; requires `addi a7, x0, K` immediately preceding every `ecall`; verifies K against per-program-type allowlist |
-| 4. pointer provenance                     | ✅ partial; load/store base must be `PTR_CTX` / `PTR_STACK` / `PTR_HELPER_RET` (not `UNKNOWN` / `CONST`) |
-| 2. control flow (back-edges)              | ✅ partial; rejects all back-edges (loops are a Phase-2 todo gated by `merlin_loop()`) |
+| 4. pointer provenance                     | ✅ implemented; load/store base must be `PTR_CTX` / `PTR_STACK` / `PTR_HELPER_RET`; Phase-2 adds offset-range bounds |
+| 2. control flow (back-edges)              | ✅ implemented; Phase-2 accepts back edges whose loop header is preceded by `merlin_loop_bound()` (helper id 0x0142); rejects all other back edges |
 | 2. control flow (indirect `jalr`)         | ✅ partial; `jalr` via `ra` (the return pattern) is accepted; everything else is rejected pending kfunc-slot resolution |
+| CFG construction / reducibility           | ✅ Phase-2 implemented (cfg.c); iterative dominators, back-edge identification |
+| Worklist with state joins                 | ✅ Phase-2 implemented; reverse-postorder propagation, per-register tnum + range merge at block entries |
+| tnum + signed/unsigned range tracking     | ✅ Phase-2 implemented (tnum.h header-only domain) |
 
 ### Not in v0 (Phase 2 work)
 
 | Property (§2 number) | Status |
 | -------------------- | ------ |
 | 3. stack discipline                       | not implemented (sp delta tracking todo) |
-| 6. termination bound via `merlin_loop()`  | not implemented (loops universally rejected) |
+| 6. termination bound via `merlin_loop()` (callback form) | partial; `merlin_loop_bound()` recognised as syntactic loop annotation; full callback-with-subgraph verification deferred |
 | 7. no FP                                  | implemented as part of property 1 |
 | 8. memory-model use (atomics + fences)    | not implemented |
-| CFG / join points / widening              | not implemented; v0 is a single linear pass |
-| tnum / range tracking                     | replaced by a coarse `CONST | UNKNOWN | PTR_*` lattice |
 | CO-RE-V effect modeling                   | not implemented; verifier sees pre-resolution offsets |
+| kfunc table resolution                    | not implemented (indirect `jalr` other than return path rejected) |
 
 ### Test battery as executable spec
 
 `tools/merlin-verifier/bad-progs/run.sh` is the executable spec for
-v0 accept/reject semantics. Ten cases (three accept, seven reject)
-cover the rules above. Future loosening or tightening of the
-verifier updates the battery in lock-step.
+the verifier's accept/reject semantics. Fourteen cases (six accept,
+eight reject) cover the rules above, including the Phase-2 additions:
+`loop_bounded` (accepted via `merlin_loop_bound()`), `loop_unbounded`
+(rejected without the annotation), `join_scalars` (accepted across a
+diamond CFG with constant scalars merged at the tail), and
+`alu_two_ptrs` (rejected on `add ptr, ptr`). Future loosening or
+tightening of the verifier updates the battery in lock-step.
+
+## 10. Phase-2 architecture (landed)
+
+See [15-verifier-phase2.md](15-verifier-phase2.md) for the full
+write-up. Summary:
+
+- **Files (kernel):** `kernel/merlin/cfg.c`,
+  `kernel/merlin/verifier.c`, `kernel/merlin/include/merlin_tnum.h`.
+- **Files (userland):** `tools/merlin-verifier/cfg.{h,c}`,
+  `tools/merlin-verifier/verify.{h,c}`, `tools/merlin-verifier/tnum.h`.
+- **Domain:** tnum (eBPF-style mask+value) + signed/unsigned range
+  + pointer kind with `(off_min, off_max)` range.
+- **Algorithm:** CFG construction → iterative dominators →
+  reverse-postorder worklist with state joins at block entries →
+  bounded back-edge gating via `merlin_loop_bound()`.
+- **Step cap:** `MERLIN_VERIFY_STEP_CAP_DEFAULT = 1 << 20` transfer
+  invocations; guards irreducible CFGs.
+
+The kernel and userland implementations are bit-for-bit-equivalent
+on the shared abstract domain (`merlin_tnum.h` is included by both,
+modulo the `s64/u64` vs `intN_t/uintN_t` swap). This keeps the
+factoring-into-shared-module path (Option A in §4) mechanical.
 
 The following previously-open items are now **decided** (recorded
 here for traceability):

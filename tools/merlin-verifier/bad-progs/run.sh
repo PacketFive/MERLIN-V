@@ -99,6 +99,55 @@ assert_reject "back_edge"   0x00000013 0xFE000EE3
 # = 0x005288b3
 assert_reject "ecall_a7_nonconst" 0x005288b3 0x00000073
 
+# --- Phase-2 cases (CFG joins, bounded loops, pointer bounds) ----------
+
+# Bounded loop accepted via merlin_loop_bound (helper id 0x0142):
+#   addi a7, x0, 0x142   ; helper = loop-bound
+#   addi a0, x0, 10      ; trip cap = 10
+#   ecall                ; mark next block as a permitted loop header
+#   addi a0, a0, -1      ; .L:  body: decrement counter
+#   bne  a0, x0, .L      ;      branch back if non-zero
+#   jalr x0, ra, 0       ; ret
+#
+# Encodings:
+#   addi a7, x0, 0x142  = 0x14200893
+#   addi a0, x0, 10     = 0x00a00513
+#   ecall               = 0x00000073
+#   addi a0, a0, -1     = 0xfff50513
+#   bne  a0, x0, -4     = imm=-4 -> 0xfe051ee3
+#   jalr x0, ra, 0      = 0x00008067
+assert_accept "loop_bounded" \
+    0x14200893 0x00a00513 0x00000073 \
+    0xfff50513 0xfe051ee3 0x00008067
+
+# Same back-edge but WITHOUT the loop-bound annotation -> rejected.
+# (already covered by back_edge above, but include the symmetric
+# negative for clarity)
+assert_reject "loop_unbounded" \
+    0xfff50513 0xfe051ee3 0x00008067
+
+# Branch-and-merge with type-compatible scalars: program builds
+# scalar 1 down one path, scalar 5 down the other, then returns.
+# This exercises vstate_join() / scalar_join().
+#   addi a7, x0, 0x110   ; ktime_get_ns
+#   ecall                ; clobbers a0
+#   addi a0, x0, 1       ; a0 = 1 (path A; cond never taken in practice)
+#   beq  x0, x0, +8      ; jump over path B
+#   addi a0, x0, 5       ; a0 = 5 (path B)
+#   jalr x0, ra, 0       ; ret
+#
+# beq x0, x0, +8  = imm=8 -> 0x00000463
+assert_accept "join_scalars" \
+    0x11000893 0x00000073 \
+    0x00100513 0x00000463 \
+    0x00500513 0x00008067
+
+# ALU on two pointers -> reject.
+#   add s0, sp, a0   (sp = PTR_STACK, a0 = PTR_CTX at entry)
+# add rd=s0(x8), rs1=sp(x2), rs2=a0(x10):
+#   funct7=0 rs2=10 rs1=2 funct3=0 rd=8 op=0x33 = 0x00a10433
+assert_reject "alu_two_ptrs" 0x00a10433 0x00008067
+
 echo
 echo "== Summary: $pass passed, $fail failed =="
 exit $fail

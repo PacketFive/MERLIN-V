@@ -36,6 +36,7 @@ the source material for:
 | 12 | [`12-core-v-spec.md`](12-core-v-spec.md) — CO-RE-V relocation and `.merlin.btf_ext` spec | draft |
 | 13 | [`13-evaluation-plan.md`](13-evaluation-plan.md) — RFC v1 evaluation plan: workloads, environments, pass/fail criteria | starter |
 | 14 | [`14-mvcp-multicast.md`](14-mvcp-multicast.md) — MVCP multicast channel: `MERLIN_NL_CTRL` Genl family + event schemas | design |
+| 15 | [`15-verifier-phase2.md`](15-verifier-phase2.md) — Phase-2 verifier as landed: CFG + worklist + tnum + bounded loops | landed |
 
 For the course/training-material companion to these design docs, see
 [`../academics/`](../academics/README.md).

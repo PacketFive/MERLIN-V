@@ -24,6 +24,8 @@
 #include <linux/types.h>
 #include <linux/workqueue.h>
 
+#include <merlin_tnum.h>
+
 /* Pull in the draft UAPI types we reference here.
  * In-tree path: include/uapi/linux/merlin.h
  * Out-of-tree:  docs/design/uapi/linux/merlin.h (via -I ccflag in Makefile)
@@ -149,13 +151,15 @@ extern struct idr merlin_link_idr;
 extern spinlock_t merlin_idr_lock;
 
 /* -----------------------------------------------------------------------
- * Verifier API (verifier.c / decode.c)
+ * Verifier API (verifier.c / decode.c / cfg.c)
  * ----------------------------------------------------------------------- */
 
-/* Abstract register-value domain (mirroring tools/merlin-verifier/verify.h) */
+/* Abstract register-value domain (Phase-2: scalar tnum+range, pointer
+ * with offset range).  Mirrors tools/merlin-verifier/verify.h.
+ */
 enum merlin_rval_kind {
-	RVAL_UNKNOWN = 0,
-	RVAL_CONST,
+	RVAL_UNINIT = 0,
+	RVAL_SCALAR,
 	RVAL_PTR_CTX,
 	RVAL_PTR_STACK,
 	RVAL_PTR_HELPER_RET,
@@ -163,22 +167,31 @@ enum merlin_rval_kind {
 
 struct merlin_rval {
 	enum merlin_rval_kind kind;
-	u64 val;      /* CONST: value | PTR: offset                            */
-	u32 extra;    /* PTR_HELPER_RET: helper id                             */
+	struct merlin_scalar  s;        /* SCALAR: value range + tnum */
+	s64                   off_min;  /* PTR_*:  offset range       */
+	s64                   off_max;
+	u32                   helper_id;
 };
 
 struct merlin_vstate {
-	struct merlin_rval x[32];  /* one abstract value per RV register       */
+	struct merlin_rval x[32];
+	bool               valid;
 };
 
+/* The well-known helper id for "this is a bounded loop".  See
+ * docs/design/06-verifier.md and the user-space prototype.
+ */
+#define MERLIN_HELPER_LOOP_BOUND   0x0142
+
 struct merlin_verifier_cfg {
-	u8   helper_allow[MERLIN_MAX_HELPER_ID / 8 + 1]; /* bitset            */
+	u8   helper_allow[MERLIN_MAX_HELPER_ID / 8 + 1]; /* bitset       */
 	u32  max_stack_bytes;
 	bool allow_back_edges;
 	bool verbose;
 	char *log_buf;
 	u32   log_buf_sz;
 	u32   log_pos;
+	u32   step_cap;
 };
 
 enum merlin_verify_result {
@@ -243,6 +256,42 @@ struct merlin_insn {
 int  merlin_decode(u32 insn_word, u32 pc, struct merlin_insn *out);
 bool merlin_insn_permitted_default(const struct merlin_insn *in);
 const char *merlin_insn_class_name(enum merlin_insn_class cls);
+
+/* -----------------------------------------------------------------------
+ * CFG API (cfg.c) — basic-block construction + reducibility analysis.
+ * Used by the Phase-2 verifier.
+ * ----------------------------------------------------------------------- */
+#define MERLIN_CFG_MAX_BLOCKS  4096
+#define MERLIN_CFG_MAX_EDGES   (MERLIN_CFG_MAX_BLOCKS * 2)
+
+struct merlin_block {
+	u32  start_pc;
+	u32  end_pc;
+	u32  insn_count;
+	int  succ[2];
+	u32  succ_pc[2];
+	bool is_return;
+	bool reachable;
+	int  idom;
+};
+
+struct merlin_cfg {
+	struct merlin_block blocks[MERLIN_CFG_MAX_BLOCKS];
+	u32                 nblocks;
+
+	int                 rpo[MERLIN_CFG_MAX_BLOCKS];
+	u32                 rpo_count;
+
+	struct { int src; int dst; } back_edges[MERLIN_CFG_MAX_EDGES];
+	u32                 back_edge_count;
+
+	bool                reducible;
+	const char         *reject_reason;
+};
+
+int merlin_cfg_build(const u8 *text, size_t text_size, u32 text_offset,
+		     struct merlin_cfg *cfg);
+int merlin_cfg_block_at(const struct merlin_cfg *cfg, u32 pc);
 
 /* -----------------------------------------------------------------------
  * JIT operations table

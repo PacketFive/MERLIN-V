@@ -15,6 +15,7 @@ merlin-y := \
 	core.o       \
 	loader.o     \
 	verifier.o   \
+	cfg.o        \
 	decode.o     \
 	dispatch.o   \
 	maps.o
