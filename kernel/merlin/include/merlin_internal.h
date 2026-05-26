@@ -189,13 +189,21 @@ struct merlin_vstate {
  */
 #define MERLIN_HELPER_KFUNC_RESOLVE 0x0143
 
-#define MERLIN_MAX_KFUNC_ID  4095
+/* The well-known helper id for "run callback cb_id (in a1) up to N
+ * (a0) times with (a2) as ctx".  See docs/design/15-verifier-phase2.md §A3.
+ */
+#define MERLIN_HELPER_LOOP_CB 0x0144
+
+#define MERLIN_MAX_KFUNC_ID    4095
+#define MERLIN_MAX_CB_ID       4095
 
 struct merlin_verifier_cfg {
 	u8   helper_allow[MERLIN_MAX_HELPER_ID / 8 + 1]; /* bitset       */
 	u8   kfunc_allow[MERLIN_MAX_KFUNC_ID / 8 + 1];
+	u8   callback_allow[MERLIN_MAX_CB_ID / 8 + 1];  /* Phase-3.A3   */
 	u32  max_stack_bytes;
 	bool allow_back_edges;
+	bool is_callback_body; /* Phase-3.A3: callback entry state */
 	bool verbose;
 	char *log_buf;
 	u32   log_buf_sz;

@@ -56,6 +56,37 @@ assert_reject () {
     fi
 }
 
+# Callback-body variants: use -s cb.test section suffix so the verifier
+# applies the Phase-3.A3 callback entry state (a0=scalar, a1=PTR_CTX).
+assert_accept_cb () {
+    local label="$1"; shift
+    rm -f case_cb_${label}.o
+    $MK -s cb.test case_cb_${label}.o "$@" >/dev/null
+    if $VERIFIER case_cb_${label}.o >/tmp/out.cb_${label}.txt 2>/tmp/err.cb_${label}.txt; then
+        echo "  [PASS] cb_$label  (accepted as expected)"
+        pass=$((pass + 1))
+    else
+        echo "  [FAIL] cb_$label  (expected ACCEPT, got REJECT)"
+        cat /tmp/err.cb_${label}.txt | sed 's/^/    /'
+        fail=$((fail + 1))
+    fi
+}
+
+assert_reject_cb () {
+    local label="$1"; shift
+    rm -f case_cb_${label}.o
+    $MK -s cb.test case_cb_${label}.o "$@" >/dev/null
+    if $VERIFIER case_cb_${label}.o >/tmp/out.cb_${label}.txt 2>/tmp/err.cb_${label}.txt; then
+        echo "  [FAIL] cb_$label  (expected REJECT, got ACCEPT)"
+        cat /tmp/out.cb_${label}.txt | sed 's/^/    /'
+        fail=$((fail + 1))
+    else
+        local reason=$(grep -m1 'REJECT' /tmp/err.cb_${label}.txt || true)
+        echo "  [PASS] cb_$label  (rejected as expected: ${reason#REJECT })"
+        pass=$((pass + 1))
+    fi
+}
+
 echo "== merlin-verifier test battery =="
 
 # --- positive cases -----------------------------------------------------
@@ -192,6 +223,47 @@ assert_reject "jalr_arbitrary_reg" \
 #   jalr x0, a0, 0
 assert_reject "jalr_unresolved_ptr" \
     0x00050067
+
+# --- Phase-3.A3 cases (merlin_loop callback form) ----------------------
+
+# Caller side: legal merlin_loop(5, cb_id=1, ctx).
+#   addi a0, x0, 5          ; trip count N=5
+#   addi a1, x0, 1          ; callback id 0x001 (in callback_allow)
+#   addi a7, x0, 0x144      ; MERLIN_HELPER_LOOP_CB
+#   ecall                   ; invoke loop_cb; next block = loop header
+#   jalr x0, ra, 0          ; ret
+#
+# addi a0, x0, 5   = 0x00500513
+# addi a1, x0, 1   = 0x00100593
+# addi a7, x0, 0x144 = 0x14400893
+assert_accept "loop_cb_caller_legal" \
+    0x00500513 0x00100593 0x14400893 0x00000073 0x00008067
+
+# Caller side: callback id 0x100 NOT in the per-program callback_allow.
+#   addi a0, x0, 5          ; trip count
+#   addi a1, x0, 0x100      ; cb id = 256 (not in allowlist)
+#   addi a7, x0, 0x144      ; MERLIN_HELPER_LOOP_CB
+#   ecall
+#
+# addi a1, x0, 0x100 = 0x10000593
+assert_reject "loop_cb_caller_unregistered" \
+    0x00500513 0x10000593 0x14400893 0x00000073 0x00008067
+
+# Callback body: legal body — increment a0 (loop index), return.
+#   At callback entry: a0 = scalar [0, INT64_MAX], a1 = PTR_CTX.
+#   addi a0, a0, 1          ; scalar op on a0 — fine
+#   jalr x0, ra, 0          ; ret
+#
+# addi a0, a0, 1 = 0x00150513
+assert_accept_cb "loop_cb_body_legal" \
+    0x00150513 0x00008067
+
+# Callback body: load through a0, which is SCALAR at callback entry.
+#   At callback entry a0 is a scalar (loop index), NOT a pointer.
+#   Attempting lw t1, 0(a0) must be rejected.
+#   lw t1, 0(a0) = 0x00052303
+assert_reject_cb "loop_cb_body_load_a0" \
+    0x00052303 0x00008067
 
 echo
 echo "== Summary: $pass passed, $fail failed =="

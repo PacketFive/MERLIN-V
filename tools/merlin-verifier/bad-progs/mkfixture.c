@@ -105,19 +105,37 @@ int main(int argc, char **argv)
 {
 	if (argc < 3) {
 		fprintf(stderr,
-			"Usage: %s <out.o> <hex32> [<hex32> ...]\n",
+			"Usage: %s [-s section-suffix] <out.o> <hex32> [<hex32> ...]\n"
+			"\n"
+			"  -s <suffix>   override section name suffix (default: mvdp.test)\n"
+			"                The section is named .text.merlin.<suffix>\n"
+			"                Use 'cb.test' for callback-body fixtures.\n",
 			argv[0]);
 		return 2;
 	}
 
-	const char *out_path = argv[1];
-	size_t n = (size_t)(argc - 2);
+	/* Parse optional -s flag. */
+	const char *section_suffix = "mvdp.test";
+	int arg_start = 1;
+	if (argc >= 3 && strcmp(argv[1], "-s") == 0) {
+		section_suffix = argv[2];
+		arg_start = 3;
+	}
+
+	if (arg_start + 1 > argc) {
+		fprintf(stderr, "Usage: %s [-s suffix] <out.o> <hex32>...\n",
+			argv[0]);
+		return 2;
+	}
+
+	const char *out_path = argv[arg_start];
+	size_t n = (size_t)(argc - arg_start - 1);
 
 	/* Encode the instruction stream into a flat LE byte buffer. */
-	uint8_t *text = calloc(n, 4);
+	uint8_t *text = calloc(n ? n : 1, 4);
 	if (!text) die("oom");
 	for (size_t i = 0; i < n; i++) {
-		uint32_t w = parse_hex32(argv[2 + i]);
+		uint32_t w = parse_hex32(argv[arg_start + 1 + i]);
 		text[4*i + 0] = (uint8_t)(w      );
 		text[4*i + 1] = (uint8_t)(w >>  8);
 		text[4*i + 2] = (uint8_t)(w >> 16);
@@ -177,8 +195,12 @@ int main(int argc, char **argv)
 
 	add_section(e, ".merlin.meta",    &strtab_data, SHT_PROGBITS, SHF_ALLOC, &m, sizeof(m));
 	add_section(e, ".merlin.license", &strtab_data, SHT_PROGBITS, SHF_ALLOC, lic, sizeof(lic));
-	add_section(e, ".text.merlin.mvdp.test", &strtab_data,
-		    SHT_PROGBITS, SHF_ALLOC | SHF_EXECINSTR, text, n * 4);
+	{
+		char sname[128];
+		snprintf(sname, sizeof(sname), ".text.merlin.%s", section_suffix);
+		add_section(e, sname, &strtab_data,
+			    SHT_PROGBITS, SHF_ALLOC | SHF_EXECINSTR, text, n * 4);
+	}
 
 	/* .shstrtab itself */
 	Elf_Scn *scn = elf_newscn(e);

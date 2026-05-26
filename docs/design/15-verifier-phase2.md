@@ -205,8 +205,26 @@ become Phase-3:
   `kfunc_call_legal` (ACCEPT), `kfunc_unallowed` /
   `jalr_arbitrary_reg` / `jalr_unresolved_ptr` (all REJECT).
   22/22 fixtures pass.
-- **`merlin_loop()` (callback form).** Verify the body as a
-  separate verification unit with the loop-counter scalar in `a0`.
+- **`merlin_loop()` (callback form).** ✅ Landed (Phase-3.A3). Adds
+  `MERLIN_HELPER_LOOP_CB = 0x0144` and `cfg.callback_allow[]` bitset.
+  The canonical caller sequence:
+  ```
+  addi a0, x0, N              ; const trip count (>= 1)
+  addi a1, x0, CB_ID          ; const callback id (in callback_allow)
+  addi a7, x0, 0x0144         ; MERLIN_HELPER_LOOP_CB
+  ecall                       ; loop; fall-through = permitted loop header
+  ```
+  The callback body is a separate `.text.merlin.cb.*` section verified
+  with a callback entry state: `a0 = scalar [0, INT64_MAX]` (loop
+  iteration index), `a1 = PTR_CTX`, all other argument registers UNINIT.
+  The verifier binary auto-detects `.text.merlin.cb.*` sections and
+  applies this entry state.  `mkfixture` gains a `-s <suffix>` flag so
+  callback body fixtures can be built with `-s cb.test`.
+  4 new fixtures: `loop_cb_caller_legal` (ACCEPT),
+  `loop_cb_caller_unregistered` (REJECT, cb_id not in allowlist),
+  `cb_loop_cb_body_legal` (ACCEPT, callback entry contract satisfied),
+  `cb_loop_cb_body_load_a0` (REJECT, load through a0 which is SCALAR
+  at callback entry, not a pointer).  26/26 fixtures pass.
 - **CO-RE-V effect modeling.** Substitute relocation effects before
   verification.
 - **Atomic / fence semantics.** Profile-gated.

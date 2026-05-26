@@ -85,13 +85,29 @@ static struct merlin_rval rv_ptr(enum merlin_rval_kind k, s64 lo, s64 hi)
 	return (struct merlin_rval){ .kind = k, .off_min = lo, .off_max = hi };
 }
 
-static void vstate_init_entry(struct merlin_vstate *s)
+static void vstate_init_entry(struct merlin_vstate *s,
+			      const struct merlin_verifier_cfg *cfg)
 {
 	int i;
 	for (i = 0; i < 32; i++)
 		s->x[i] = rv_uninit();
 	s->x[0] = rv_const(0);
-	s->x[10] = rv_ptr(RVAL_PTR_CTX, 0, 0);
+
+	if (cfg->is_callback_body) {
+		/* Phase-3.A3: callback entry state.
+		 *   a0 = scalar [0, S64_MAX]  (loop iteration index)
+		 *   a1 = PTR_CTX              (the context pointer)
+		 *   sp = PTR_STACK            (frame discipline applies)
+		 */
+		s->x[10] = rv_scalar((struct merlin_scalar){
+			.smin = 0,
+			.smax = S64_MAX,
+			.tn = tnum_top(),
+		});
+		s->x[11] = rv_ptr(RVAL_PTR_CTX, 0, 0);
+	} else {
+		s->x[10] = rv_ptr(RVAL_PTR_CTX, 0, 0);
+	}
 	s->x[2] = rv_ptr(RVAL_PTR_STACK, 0, 0);
 	s->valid = true;
 }
@@ -172,6 +188,14 @@ static inline bool kfunc_allowed(const struct merlin_verifier_cfg *cfg, u32 id)
 	if (id > MERLIN_MAX_KFUNC_ID)
 		return false;
 	return !!(cfg->kfunc_allow[id / 8] & (1u << (id % 8)));
+}
+
+static inline bool callback_allowed(const struct merlin_verifier_cfg *cfg,
+				    u32 id)
+{
+	if (id > MERLIN_MAX_CB_ID)
+		return false;
+	return !!(cfg->callback_allow[id / 8] & (1u << (id % 8)));
 }
 
 #define REJECT(in, fmt, ...)                                                  \
@@ -305,6 +329,51 @@ static void step_insn(struct merlin_insn in, struct merlin_vstate *st,
 				st->x[r] = rv_uninit();
 			for (r = 28; r <= 31; r++)
 				st->x[r] = rv_uninit();
+			goto out;
+		}
+		if (hid == MERLIN_HELPER_LOOP_CB) {
+			/* Phase-3.A3: merlin_loop(N, cb_id, ctx).
+			 *   a0 = const trip count N (>= 1)
+			 *   a1 = const callback id  (in callback_allow)
+			 * The fall-through block is marked as a permitted
+			 * loop header.  The callback body is a separate
+			 * MERLIN program verified with callback entry state.
+			 */
+			struct merlin_rval a1;
+			a0 = st->x[10];
+			a1 = st->x[11];
+			if (a0.kind != RVAL_SCALAR ||
+			    !scalar_is_const(a0.s) ||
+			    a0.s.smin < 1) {
+				REJECT(in,
+				       "loop_cb: a0 must be a positive "
+				       "constant trip count (kind=%s)",
+				       rval_kind_name(a0.kind));
+			} else if (a1.kind != RVAL_SCALAR ||
+				   !scalar_is_const(a1.s)) {
+				REJECT(in,
+				       "loop_cb: a1 must be a constant "
+				       "callback id (kind=%s)",
+				       rval_kind_name(a1.kind));
+			} else if (!callback_allowed(cfg,
+						     (u32)a1.s.tn.value)) {
+				REJECT(in,
+				       "loop_cb: callback id 0x%x not in "
+				       "per-program callback allowlist",
+				       (u32)a1.s.tn.value);
+			} else {
+				VTRACE(in, "loop_cb: N=%u cb=0x%x OK",
+				       (u32)a0.s.tn.value,
+				       (u32)a1.s.tn.value);
+				*pending_loop_bound = (u32)a0.s.tn.value;
+			}
+			for (r = 10; r <= 17; r++)
+				st->x[r] = rv_uninit();
+			for (r = 5; r <= 7; r++)
+				st->x[r] = rv_uninit();
+			for (r = 28; r <= 31; r++)
+				st->x[r] = rv_uninit();
+			st->x[10] = rv_scalar_top();
 			goto out;
 		}
 		st->x[10] = (struct merlin_rval){
@@ -605,7 +674,7 @@ merlin_verify_text(const u8 *text, size_t text_size, u32 text_offset,
 	q.items = ws_items;
 	q.cap = (int)G->nblocks;
 
-	vstate_init_entry(&entry_state[0]);
+	vstate_init_entry(&entry_state[0], cfg);
 	ws_push(&q, 0);
 
 	while ((i = ws_pop(&q)) >= 0) {
@@ -740,6 +809,10 @@ void merlin_verifier_cfg_for_prog(struct merlin_verifier_cfg *cfg,
 	cfg->helper_allow[MERLIN_HELPER_KFUNC_RESOLVE / 8] |=
 		(1u << (MERLIN_HELPER_KFUNC_RESOLVE % 8));
 
+	/* Phase-3.A3: always permit the loop-callback helper. */
+	cfg->helper_allow[MERLIN_HELPER_LOOP_CB / 8] |=
+		(1u << (MERLIN_HELPER_LOOP_CB % 8));
+
 	switch (prog_type) {
 	case MERLIN_PROG_TYPE_XDP_V:
 	case MERLIN_PROG_TYPE_TC_V:
@@ -752,6 +825,8 @@ void merlin_verifier_cfg_for_prog(struct merlin_verifier_cfg *cfg,
 		cfg->kfunc_allow[0] |= (1u << 1); /* kfunc id 0x001 */
 		cfg->kfunc_allow[0] |= (1u << 2); /* kfunc id 0x002 */
 		cfg->kfunc_allow[0] |= (1u << 3); /* kfunc id 0x003 */
+		/* Phase-3.A3: sample callback table. */
+		cfg->callback_allow[0] |= (1u << 1); /* cb id 0x001 */
 		break;
 	default:
 		break;

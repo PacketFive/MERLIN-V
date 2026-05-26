@@ -35,8 +35,9 @@
 #include "decode.h"
 #include "tnum.h"
 
-#define MERLIN_NR_HELPERS 4096
-#define MERLIN_NR_KFUNCS  4096
+#define MERLIN_NR_HELPERS    4096
+#define MERLIN_NR_KFUNCS     4096
+#define MERLIN_NR_CALLBACKS  4096
 
 /* The well-known helper id for "this is a bounded loop". */
 #define MERLIN_HELPER_LOOP_BOUND 0x0142
@@ -45,6 +46,25 @@
  * PTR_KFUNC_SLOT in a0".  See docs/design/15-verifier-phase2.md §A2.
  */
 #define MERLIN_HELPER_KFUNC_RESOLVE 0x0143
+
+/* The well-known helper id for "run callback cb_id (in a1) up to N
+ * (a0) times with (a2) as ctx".  See docs/design/15-verifier-phase2.md §A3.
+ *
+ * Canonical sequence:
+ *   addi a0, x0, N         ; max iterations (must be const ≥ 1)
+ *   addi a1, x0, CB_ID     ; callback id (must be const, in callback_allow)
+ *   addi a7, x0, 0x0144    ; MERLIN_HELPER_LOOP_CB
+ *   ecall                  ; loop; a0 → aggregate return (SCALAR_TOP)
+ *
+ * The immediate fall-through block is also marked as a permitted loop
+ * header (same mechanism as MERLIN_HELPER_LOOP_BOUND).
+ *
+ * The callback body is a separate MERLIN program section identified
+ * by the .text.merlin.cb.* naming convention.  The verifier runs it
+ * with a callback entry state: a0 = scalar [0, INT64_MAX] (loop
+ * index), a1 = PTR_CTX, all other argument registers UNINIT.
+ */
+#define MERLIN_HELPER_LOOP_CB 0x0144
 
 /* ----------------------------------------------------------------------
  * Abstract value domain (per-register).
@@ -77,8 +97,10 @@ struct merlin_vstate {
 struct merlin_verifier_cfg {
 	uint8_t helper_allow[MERLIN_NR_HELPERS / 8];
 	uint8_t kfunc_allow[MERLIN_NR_KFUNCS / 8];
+	uint8_t callback_allow[MERLIN_NR_CALLBACKS / 8]; /* Phase-3.A3 */
 	uint32_t max_stack_bytes;
 	bool allow_back_edges;
+	bool is_callback_body; /* Phase-3.A3: use callback entry state */
 	bool verbose;
 
 	uint32_t step_cap; /* total transfer-function invocations */

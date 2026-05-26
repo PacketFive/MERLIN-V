@@ -84,7 +84,7 @@ fail:
 
 static int verify_one(struct elf_obj *o, Elf_Scn *scn,
 		      const char *sname,
-		      const struct merlin_verifier_cfg *cfg)
+		      const struct merlin_verifier_cfg *cfg_in)
 {
 	Elf_Data *d = elf_getdata(scn, NULL);
 	if (!d || !d->d_buf || d->d_size == 0) {
@@ -95,11 +95,18 @@ static int verify_one(struct elf_obj *o, Elf_Scn *scn,
 	GElf_Shdr shdr;
 	gelf_getshdr(scn, &shdr);
 
+	/* Phase-3.A3: callback body sections use a different entry state.
+	 * Use a local copy of cfg so we don't mutate the caller's config.
+	 */
+	struct merlin_verifier_cfg cfg = *cfg_in;
+	if (strncmp(sname, ".text.merlin.cb.", 16) == 0)
+		cfg.is_callback_body = true;
+
 	char summary[256] = {0};
 	enum merlin_verify_result rc = merlin_verify_text(
 		d->d_buf, d->d_size,
 		(uint32_t)shdr.sh_offset,
-		cfg, summary, sizeof(summary));
+		&cfg, summary, sizeof(summary));
 
 	const char *verdict = (rc == MERLIN_VERIFY_OK) ? "ACCEPT" : "REJECT";
 	printf("%s  %s  (%zu bytes)  %s\n",
@@ -168,7 +175,7 @@ int main(int argc, char **argv)
 		if (!gelf_getshdr(scn, &sh))
 			continue;
 		const char *sname = elf_strptr(o.elf, o.shstrndx, sh.sh_name);
-		if (!sname || strncmp(sname, ".text.merlin.", 13) != 0)
+		if (!sname || (strncmp(sname, ".text.merlin.", 13) != 0))
 			continue;
 
 		progs++;

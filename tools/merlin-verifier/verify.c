@@ -105,13 +105,31 @@ static struct merlin_rval rv_ptr(enum merlin_rval_kind k, int64_t off_min,
 }
 
 /* ---------- vstate ---------- */
-static void vstate_init_entry(struct merlin_vstate *s)
+static void vstate_init_entry(struct merlin_vstate *s,
+			      const struct merlin_verifier_cfg *cfg)
 {
 	int i;
 	for (i = 0; i < 32; i++)
 		s->x[i] = rv_uninit();
 	s->x[0] = rv_const(0); /* x0 == 0           */
-	s->x[10] = rv_ptr(RVAL_PTR_CTX, 0, 0); /* a0 = ctx          */
+
+	if (cfg->is_callback_body) {
+		/* Phase-3.A3: callback entry state.
+		 *   a0 = scalar [0, INT64_MAX]  (loop iteration index)
+		 *   a1 = PTR_CTX               (the context pointer)
+		 *   sp = PTR_STACK             (frame discipline applies)
+		 * All other argument registers (a2..a7) start UNINIT;
+		 * the callback must not assume anything about them.
+		 */
+		s->x[10] = rv_scalar((struct merlin_scalar){
+			.smin = 0,
+			.smax = (int64_t)(((uint64_t)1 << 63) - 1), /* INT64_MAX */
+			.tn = tnum_top(),
+		});
+		s->x[11] = rv_ptr(RVAL_PTR_CTX, 0, 0); /* a1 = ctx */
+	} else {
+		s->x[10] = rv_ptr(RVAL_PTR_CTX, 0, 0); /* a0 = ctx */
+	}
 	s->x[2] = rv_ptr(RVAL_PTR_STACK, 0, 0); /* sp = stack base */
 	s->valid = true;
 }
@@ -213,6 +231,19 @@ static inline void kfunc_set(struct merlin_verifier_cfg *cfg, uint32_t id)
 		cfg->kfunc_allow[id / 8] |= (1u << (id % 8));
 }
 
+static inline bool callback_allowed(const struct merlin_verifier_cfg *cfg,
+				    uint32_t id)
+{
+	if (id >= MERLIN_NR_CALLBACKS)
+		return false;
+	return (cfg->callback_allow[id / 8] >> (id % 8)) & 1u;
+}
+static inline void callback_set(struct merlin_verifier_cfg *cfg, uint32_t id)
+{
+	if (id < MERLIN_NR_CALLBACKS)
+		cfg->callback_allow[id / 8] |= (1u << (id % 8));
+}
+
 void merlin_verifier_cfg_init_for_mvdp(struct merlin_verifier_cfg *cfg)
 {
 	memset(cfg, 0, sizeof(*cfg));
@@ -230,6 +261,7 @@ void merlin_verifier_cfg_init_for_mvdp(struct merlin_verifier_cfg *cfg)
 	helper_set(cfg, 0x0140); /* prog_tail_call   */
 	helper_set(cfg, MERLIN_HELPER_LOOP_BOUND); /* 0x0142 */
 	helper_set(cfg, MERLIN_HELPER_KFUNC_RESOLVE); /* 0x0143 */
+	helper_set(cfg, MERLIN_HELPER_LOOP_CB); /* 0x0144 */
 	helper_set(cfg, 0x0150); /* ringbuf_reserve  */
 	helper_set(cfg, 0x0151); /* ringbuf_submit   */
 	helper_set(cfg, 0x0152); /* ringbuf_discard  */
@@ -255,6 +287,12 @@ void merlin_verifier_cfg_init_for_mvdp(struct merlin_verifier_cfg *cfg)
 	kfunc_set(cfg, 0x001); /* example: route_lookup       */
 	kfunc_set(cfg, 0x002); /* example: skb_pull_inline    */
 	kfunc_set(cfg, 0x003); /* example: csum_partial       */
+
+	/* Default per-program-type callback table.  Callback id 0x001 is
+	 * the prototype "loop body" callback used in tests; the real
+	 * registry is populated at load time (see Phase-3.A3).
+	 */
+	callback_set(cfg, 0x001); /* example: loop_body */
 }
 
 /* ---------- transfer functions for a single instruction --------------- */
@@ -411,6 +449,64 @@ static void step_insn(struct merlin_insn in, struct merlin_vstate *st,
 					for (r = 28; r <= 31; r++)
 						st->x[r] = rv_uninit();
 				}
+				return;
+			}
+			if (hid == MERLIN_HELPER_LOOP_CB) {
+				/* Phase-3.A3: merlin_loop(N, cb_id, ctx).
+				 *   a0 = const trip count N (>= 1)
+				 *   a1 = const callback id  (in callback_allow)
+				 *
+				 * The verifier marks the fall-through block as
+				 * a permitted loop header (same as LOOP_BOUND)
+				 * so the callback-driven outer loop is accepted.
+				 * The callback body is verified separately as a
+				 * .text.merlin.cb.* section with a callback
+				 * entry state (a0=scalar[0,INT64_MAX], a1=PTR_CTX).
+				 */
+				a0 = st->x[10];
+				struct merlin_rval a1 = st->x[11];
+				if (a0.kind != RVAL_SCALAR ||
+				    !scalar_is_const(a0.s) ||
+				    a0.s.smin < 1) {
+					REJECT("loop_cb: a0 must be a "
+					       "positive constant trip count "
+					       "(kind=%s)",
+					       rval_kind_name(a0.kind));
+				} else if (a1.kind != RVAL_SCALAR ||
+					   !scalar_is_const(a1.s)) {
+					REJECT("loop_cb: a1 must be a "
+					       "constant callback id "
+					       "(kind=%s)",
+					       rval_kind_name(a1.kind));
+				} else if (!callback_allowed(
+						   cfg,
+						   (uint32_t)a1.s.tn.value)) {
+					REJECT("loop_cb: callback id 0x%x not "
+					       "in per-program callback allowlist",
+					       (uint32_t)a1.s.tn.value);
+				} else {
+					DIAG("loop_cb: N=%u cb=0x%x OK",
+					     (uint32_t)a0.s.tn.value,
+					     (uint32_t)a1.s.tn.value);
+					/* Mark next block as a permitted loop
+					 * header (outer loop terminates after
+					 * N iterations at runtime).
+					 */
+					*pending_loop_bound =
+						(uint32_t)a0.s.tn.value;
+				}
+				/* Clobber caller-saved regs regardless. */
+				{
+					int r;
+					for (r = 10; r <= 17; r++)
+						st->x[r] = rv_uninit();
+					for (r = 5; r <= 7; r++)
+						st->x[r] = rv_uninit();
+					for (r = 28; r <= 31; r++)
+						st->x[r] = rv_uninit();
+				}
+				/* a0 = aggregate return (unknown scalar). */
+				st->x[10] = rv_scalar_top();
 				return;
 			}
 			/* Helper return convention: a0 = helper return,
@@ -742,7 +838,7 @@ merlin_verify_text(const uint8_t *text, size_t text_size, uint32_t text_offset,
 	}
 
 	/* Entry: block 0 starts with the canonical entry state. */
-	vstate_init_entry(&entry_state[0]);
+	vstate_init_entry(&entry_state[0], cfg);
 	ws_push(&q, 0);
 
 	while ((i = ws_pop(&q)) >= 0) {
